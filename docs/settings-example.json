@@ -1,0 +1,50 @@
+{
+  "_comment": "Snippet to merge into ~/.claude/settings.json. Replace any existing 'statusLine' entry. Add the UserPromptSubmit and StopFailure blocks under 'hooks'. Add the SessionStart block alongside any existing SessionStart hooks.",
+
+  "statusLine": {
+    "type": "command",
+    "command": "node \"%USERPROFILE%/.claude/hooks/rl-statusline.js\""
+  },
+
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-warn.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-stop-failure.js\"",
+            "timeout": 15,
+            "async": true
+          }
+        ]
+      }
+    ],
+
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-session-start.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

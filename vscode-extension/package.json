@@ -1,0 +1,32 @@
+{
+  "name": "claude-rl-monitor",
+  "displayName": "Claude Code Rate Limit Monitor",
+  "description": "Shows Claude Pro 5h session and 7-day usage in the VS Code status bar.",
+  "version": "1.1.0",
+  "publisher": "local",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "claudeRlMonitor.refresh", "title": "Claude RL: Refresh Now" }
+    ],
+    "configuration": {
+      "title": "Claude Rate Limit Monitor",
+      "properties": {
+        "claudeRlMonitor.pollIntervalSeconds": {
+          "type": "number",
+          "default": 300,
+          "minimum": 120,
+          "maximum": 1800,
+          "description": "Polling interval in seconds (min 120 to avoid HTTP 429 from the usage endpoint)."
+        },
+        "claudeRlMonitor.credentialsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override path to .credentials.json (defaults to ~/.claude/.credentials.json)."
+        }
+      }
+    }
+  }
+}

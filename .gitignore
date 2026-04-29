@@ -1,0 +1,11 @@
+node_modules/
+*.vsix
+*.log
+.DS_Store
+Thumbs.db
+
+# user-local state files
+.rl_warn
+.rl_snooze
+.rl_dismiss
+rl-handoff.json
