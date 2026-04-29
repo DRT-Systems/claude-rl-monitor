@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-04-29
+
+### VS Code extension — `1.2.1` (no code change, packaging only)
+
+### Added
+- Bundled `README.md` and `CHANGELOG.md` inside the VSIX so VS Code's Extensions view shows them on the extension's detail page.
+- `repository`, `homepage`, `bugs`, and `license` fields in `package.json` so the marketplace UI links resolve correctly.
+
 ## [0.2.1] — 2026-04-29
 
 ### VS Code extension — `1.2.1`

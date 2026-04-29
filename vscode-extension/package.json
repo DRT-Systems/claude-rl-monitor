@@ -4,6 +4,15 @@
   "description": "Shows Claude Pro 5h session and 7-day usage in the VS Code status bar.",
   "version": "1.2.1",
   "publisher": "local",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DRT-Systems/claude-rl-monitor.git"
+  },
+  "homepage": "https://github.com/DRT-Systems/claude-rl-monitor",
+  "bugs": {
+    "url": "https://github.com/DRT-Systems/claude-rl-monitor/issues"
+  },
+  "license": "MIT",
   "engines": { "vscode": "^1.80.0" },
   "main": "./extension.js",
   "activationEvents": ["onStartupFinished"],
