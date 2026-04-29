@@ -36,6 +36,12 @@ All under `~/.claude/`:
 | `.rl_dismiss` | (manual) | `rl-warn.js` | until session end |
 | `rl-handoff.json` | `rl-stop-failure.js` | `rl-session-start.js` | 8 hours, one-shot |
 
+## Sonnet field limitation (CLI only)
+
+Claude Code's `statusLine` JSON input exposes `rate_limits.five_hour` and `rate_limits.seven_day` but **not** `rate_limits.seven_day_sonnet` as of v2.1.119 (verified 2026-04-29). The hook is forward-compatible — it reads `seven_day_sonnet.used_percentage` and renders `Sonnet:NN%` when present. Until Claude Code emits that field, the CLI bar will only show 5h + 7d.
+
+The VS Code extension does not have this limitation — it polls the OAuth usage endpoint directly which always returns Sonnet utilization.
+
 ## Caveman compatibility
 
 `rl-statusline.js` inlines the [caveman](https://github.com/JuliusBrussee/caveman) plugin's mode indicator by reading `~/.claude/.caveman-active` directly — no PowerShell subprocess needed. If you don't use caveman, the indicator is silently skipped.

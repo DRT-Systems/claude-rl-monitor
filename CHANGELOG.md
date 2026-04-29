@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] — 2026-04-29
+
+### Documented
+- Claude Code v2.1.119 statusLine JSON input exposes only `rate_limits.five_hour` and `rate_limits.seven_day` — no `seven_day_sonnet`. Verified by dumping the live input shape. The CLI `rl-statusline.js` hook code is forward-compatible (reads the field if present) but the bar will only render `Sonnet:NN%` once Claude Code starts emitting it. The VS Code extension is unaffected — it polls the OAuth endpoint directly which does return Sonnet data. See `hooks/README.md`.
+
 ## [0.2.4] — 2026-04-29
 
 ### CLI hooks
