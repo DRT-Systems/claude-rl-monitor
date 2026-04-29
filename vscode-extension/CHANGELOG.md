@@ -1,5 +1,10 @@
 # Changelog — VS Code extension
 
+## [1.2.2] — 2026-04-29
+
+### Added
+- Status bar text now also displays `Sonnet:NN%` for the 7-day Claude Sonnet utilization, matching the `Account & Usage` panel in the Claude Code UI. Was previously visible in the tooltip only.
+
 ## [1.2.1] — 2026-04-29
 
 ### Fixed

@@ -146,6 +146,7 @@ function renderFromData(data) {
 
   let text = `${icon} 5h:${p5}%`;
   if (p7 !== null) text += `  7d:${p7}%`;
+  if (ps !== null) text += `  Sonnet:${ps}%`;
   if (reset5)      text += `  ↺${reset5}`;
 
   statusBar.text = text;

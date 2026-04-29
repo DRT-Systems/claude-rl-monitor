@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-04-29
+
+### VS Code extension — `1.2.2`
+
+### Added
+- Status bar text now displays `Sonnet:NN%` (7-day Claude Sonnet utilization) alongside `5h:NN%` and `7d:NN%`. The data was already retrieved and shown in the tooltip — this just promotes it to the bar so it matches the `Account & Usage` panel.
+
 ## [0.2.2] — 2026-04-29
 
 ### VS Code extension — `1.2.1` (no code change, packaging only)
