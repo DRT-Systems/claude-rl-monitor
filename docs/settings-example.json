@@ -7,6 +7,19 @@
   },
 
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-gate.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+
     "UserPromptSubmit": [
       {
         "matcher": "*",

@@ -7,6 +7,8 @@
 > | [`ohugonnot/claude-code-statusline`](https://github.com/ohugonnot/claude-code-statusline) | MIT | OAuth usage endpoint discovery (`api.anthropic.com/api/oauth/usage`), token path (`~/.claude/.credentials.json` → `claudeAiOauth.accessToken`), color-threshold + countdown rendering, cache-on-failure pattern. | [`vscode-extension/extension.js`](vscode-extension/extension.js), [`hooks/rl-statusline.js`](hooks/rl-statusline.js) |
 > | [`elb-pr/claudikins-automatic-context-manager`](https://github.com/elb-pr/claudikins-automatic-context-manager) | MIT | Two-phase flag-file bridge (`statusLine` writes flag → `UserPromptSubmit` reads flag), handoff-state JSON shape, snooze/dismiss state pattern, session-JSONL parsing for active todos + modified files. | [`hooks/rl-statusline.js`](hooks/rl-statusline.js), [`hooks/rl-warn.js`](hooks/rl-warn.js), [`hooks/rl-stop-failure.js`](hooks/rl-stop-failure.js), [`hooks/rl-session-start.js`](hooks/rl-session-start.js) |
 > | [`karthiknitt/smart_resume`](https://github.com/karthiknitt/smart_resume) (paired with [DEV.to article](https://dev.to/karthikeyan_natarajan_1cb/i-built-a-shell-wrapper-that-makes-claude-code-auto-resume-after-rate-limits-2lje)) | MIT | `rate_limits.{five_hour,seven_day}.{used_percentage,resets_at}` JSON shape from `statusLine` input, `Retry-After` header handling, reset-epoch parsing. | [`vscode-extension/extension.js`](vscode-extension/extension.js), [`hooks/rl-statusline.js`](hooks/rl-statusline.js) |
+> | [`cline/cline`](https://github.com/cline/cline) | Apache-2.0 | The 6-file memory-bank hierarchy: `projectbrief → productContext / systemPatterns / techContext → activeContext → progress`. Replicated by [`hudrazine/claude-code-memory-bank`](https://github.com/hudrazine/claude-code-memory-bank), [`alioshr/memory-bank-mcp`](https://github.com/alioshr/memory-bank-mcp), [`ipospelov/mcp-memory-bank`](https://github.com/ipospelov/mcp-memory-bank). | [`hooks/rl-memory-bank.js`](hooks/rl-memory-bank.js), [`agents/budget-orchestrator.md`](agents/budget-orchestrator.md) |
+> | [`GreatScottyMac/context-portal`](https://github.com/GreatScottyMac/context-portal) | MIT | The "strategy file" pattern — system-prompt-mandated init+update sequences that force the model to read state at session start and write back at session end. | [`agents/budget-orchestrator.md`](agents/budget-orchestrator.md) |
 >
 > Every source file in this repo also includes an `// Adapted from:` header comment with the same attribution at the file level. See [Credits](#credits-and-prior-art) below for context.
 >
@@ -91,22 +93,45 @@ The `statusLine` hook receives `rate_limits` data only when Claude Code emits it
 
 ---
 
+## Budget-aware subagent orchestration
+
+Beyond visibility, the repo ships a complete orchestration layer for keeping long workflows inside the rate-limit budget. Three pieces work together:
+
+| Piece | Type | What it does |
+|---|---|---|
+| [`hooks/rl-gate.js`](hooks/rl-gate.js) | `PreToolUse(Task)` hook | Hard-blocks subagent spawn at 85% (5h or 7d). Reads the same `~/.claude/.rl_cache.json` the VS Code extension writes. Fail-open if cache is missing. |
+| [`skills/budget-check/SKILL.md`](skills/budget-check/SKILL.md) | Skill | Planning-side query. Returns current usage, headroom, max safe subagents, and pending-checkpoint count. Pairs with [`hooks/rl-budget.js`](hooks/rl-budget.js). |
+| [`agents/budget-orchestrator.md`](agents/budget-orchestrator.md) | Agent definition | Strict init→plan→execute→checkpoint→resume protocol. Uses the [Cline 6-file memory-bank hierarchy](https://github.com/cline/cline) for project state and [`hooks/rl-checkpoint.js`](hooks/rl-checkpoint.js) for suspended-execution state. |
+
+Together they answer "build me an agent that orchestrates subagents only when there's budget, and gracefully resumes after the rate-limit window resets." See the agent file for the full protocol.
+
 ## Repo layout
 
 ```
 claude-rl-monitor/
 ├── README.md                      ← this file
+├── CHANGELOG.md
 ├── LICENSE                        ← MIT
 ├── vscode-extension/
 │   ├── extension.js               ← VS Code extension entry point
 │   ├── package.json
-│   └── README.md
+│   ├── README.md
+│   └── CHANGELOG.md
 ├── hooks/
-│   ├── rl-statusline.js
-│   ├── rl-warn.js
-│   ├── rl-stop-failure.js
-│   ├── rl-session-start.js
+│   ├── rl-statusline.js           ← terminal statusLine
+│   ├── rl-warn.js                 ← UserPromptSubmit warning at >=80%
+│   ├── rl-stop-failure.js         ← StopFailure(rate_limit) handoff
+│   ├── rl-session-start.js        ← SessionStart handoff replay
+│   ├── rl-gate.js                 ← PreToolUse(Task) hard block at 85%
+│   ├── rl-budget.js               ← budget query utility for skill/agent
+│   ├── rl-checkpoint.js           ← suspended-execution ledger
+│   ├── rl-memory-bank.js          ← Cline 6-file hierarchy
 │   └── README.md
+├── skills/
+│   └── budget-check/
+│       └── SKILL.md
+├── agents/
+│   └── budget-orchestrator.md
 └── docs/
     └── settings-example.json      ← snippet to merge into ~/.claude/settings.json
 ```

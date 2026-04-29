@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-29
+
+### Added — budget-aware subagent orchestration
+- **`hooks/rl-gate.js`** — new `PreToolUse(Task)` hook that hard-blocks subagent spawning when 5-hour or 7-day usage hits 85% (configurable). For Sonnet-typed subagents, also gates on the 7-day Sonnet bucket. Fail-open when the cache file is missing or stale (>15 min). Override via `CLAUDE_RL_THRESHOLD_5H`, `CLAUDE_RL_THRESHOLD_7D`, `CLAUDE_RL_THRESHOLD_SONNET`, `CLAUDE_RL_GATE_DISABLED` env vars.
+- **`hooks/rl-budget.js`** — utility script that returns current usage, headroom, max-safe subagent count, reset countdowns, and a one-line reasoning string as JSON. Used by the budget-check skill and the orchestrator agent for planning.
+- **`hooks/rl-checkpoint.js`** — suspended-execution ledger. `save` (stdin JSON), `list`, `show <id>`, `consume <id>`. Each checkpoint captures `task_description`, `todos`, `files_modified`, `next_steps`, `blocked_reason`, `resume_after`, plus repo branch and `git status --short`. Stored under `~/.claude/rl-sessions/`.
+- **`hooks/rl-memory-bank.js`** — Cline-style 6-file memory bank (`projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md`). Commands: `init [path]`, `read [--all]`, `append <file>`. Captures *project* state — pairs with the checkpoint ledger which captures *suspended-execution* state.
+- **`skills/budget-check/SKILL.md`** — planning skill the orchestrator invokes before every `Task` call. Returns `{available, current, headroom, max_subagents, resets_in, ...}` and the recommended action. Decision matrix for green / yellow / red zones.
+- **`agents/budget-orchestrator.md`** — strict init→plan→execute→checkpoint→resume protocol agent. Adopts the strategy-file pattern from `GreatScottyMac/context-portal` (system-prompt-mandated init+update sequences) and the Cline 6-file memory bank from `cline/cline`. Includes a subagent prompt template that instructs subagents to call `rl-checkpoint.js save` if the gate fires mid-flight.
+- **`docs/settings-example.json`** — adds the `PreToolUse(Task) → rl-gate.js` wiring.
+
+### Prior art added to credits
+- [`cline/cline`](https://github.com/cline/cline) (Apache-2.0) — 6-file memory-bank hierarchy.
+- [`GreatScottyMac/context-portal`](https://github.com/GreatScottyMac/context-portal) (MIT) — strategy-file pattern for forced init/update.
+
+### Notes
+- This is a strict superset of the existing rate-limit visibility features. The original 4 hooks (`rl-statusline`, `rl-warn`, `rl-stop-failure`, `rl-session-start`) and the VS Code extension are unchanged.
+- Default per-agent budget cost is 5% of the 5-hour window — override via `CLAUDE_RL_PER_AGENT_5H_PCT`. Tune up if you observe agents costing more.
+- The orchestrator agent is opt-in: invoke it explicitly via `Task` with `subagent_type: budget-orchestrator`. The gate hook fires for all `Task` calls regardless.
+
 ## [0.2.5] — 2026-04-29
 
 ### Documented
