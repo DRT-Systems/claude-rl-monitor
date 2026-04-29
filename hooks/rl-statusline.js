@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// Claude Code statusLine hook — renders 5h + 7d rate-limit bars and writes a
-// flag file (~/.claude/.rl_warn) when usage >= 80% so UserPromptSubmit can warn.
-// Also inlines the caveman plugin's mode indicator so replacing the existing
-// statusLine command does not lose it.
-//
-// Adapted from: ohugonnot/claude-code-statusline (MIT)
-//   https://github.com/ohugonnot/claude-code-statusline
-//   - Color thresholds (50% / 80%)
-//   - Countdown formatting
-// Adapted from: elb-pr/claudikins-automatic-context-manager (MIT)
-//   https://github.com/elb-pr/claudikins-automatic-context-manager
-//   - Two-phase pattern: statusline writes flag file, hook reads it
-//   - Per-session flag file naming under ~/.claude/
-
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -67,9 +53,11 @@ process.stdin.on('end', () => {
 
   const fiveHour = data?.rate_limits?.five_hour;
   const sevenDay  = data?.rate_limits?.seven_day;
+  const sonnet    = data?.rate_limits?.seven_day_sonnet;
 
   const fivePct  = fiveHour?.used_percentage ?? null;
   const sevenPct = sevenDay?.used_percentage ?? null;
+  const sonnetPct = sonnet?.used_percentage ?? null;
   const fiveReset = fiveHour?.resets_at ?? null;
 
   // Write/clear flag for UserPromptSubmit hook
@@ -97,10 +85,12 @@ process.stdin.on('end', () => {
   if (fivePct !== null) {
     const p5 = Math.round(fivePct);
     const p7 = sevenPct !== null ? Math.round(sevenPct) : null;
+    const ps = sonnetPct !== null ? Math.round(sonnetPct) : null;
     const countdown = formatRemaining(fiveReset);
 
     let rl = `${c('90')}│${RESET} ${pctColor(p5)}5h:${p5}%${RESET}`;
     if (p7 !== null) rl += ` ${pctColor(p7)}7d:${p7}%${RESET}`;
+    if (ps !== null) rl += ` ${pctColor(ps)}Sonnet:${ps}%${RESET}`;
     if (countdown)   rl += ` ${c('90')}↺${countdown}${RESET}`;
     parts.push(rl);
   }

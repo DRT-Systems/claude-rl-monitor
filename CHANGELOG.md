@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-04-29
+
+### CLI hooks
+
+### Added
+- `hooks/rl-statusline.js` now reads `rate_limits.seven_day_sonnet.used_percentage` from the statusLine input and displays `Sonnet:NN%` between the `7d` and the countdown. Mirrors the VS Code extension v1.2.2 change. Field is optional — older Claude Code versions that do not emit it just fall through.
+
 ## [0.2.3] — 2026-04-29
 
 ### VS Code extension — `1.2.2`
