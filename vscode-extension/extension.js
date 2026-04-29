@@ -1,16 +1,6 @@
 // Claude Code Rate Limit Monitor — VS Code status bar extension
 // Polls api.anthropic.com/api/oauth/usage using the OAuth token from
 // ~/.claude/.credentials.json and renders 5h + 7d usage in the status bar.
-//
-// Adapted from: ohugonnot/claude-code-statusline (MIT)
-//   https://github.com/ohugonnot/claude-code-statusline
-//   - OAuth usage endpoint: api.anthropic.com/api/oauth/usage
-//   - Token location: ~/.claude/.credentials.json -> claudeAiOauth.accessToken
-//   - Percentage bar rendering pattern (color thresholds, countdown)
-//   - Cache-on-failure approach for endpoint outages
-// Adapted from: karthiknitt/smart_resume (MIT)
-//   https://github.com/karthiknitt/smart_resume
-//   - Retry-After header handling on HTTP 429
 
 'use strict';
 const vscode = require('vscode');
@@ -26,7 +16,10 @@ let lastSuccessTs   = 0;        // ms epoch of last good response
 let backoffUntil    = 0;        // ms epoch — skip polls until this time
 
 const DEFAULT_CREDS = path.join(os.homedir(), '.claude', '.credentials.json');
-const DEFAULT_BACKOFF_MS = 5 * 60 * 1000; // 5 min default backoff on 429
+const DEFAULT_BACKOFF_MS = 10 * 60 * 1000; // 10 min default backoff on 429
+const CACHE_FILE = path.join(os.homedir(), '.claude', '.rl_cache.json');
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour — older cache discarded
+const FIRST_POLL_DELAY_MS = 5_000; // brief stagger after activation to avoid burst polls
 
 function getCredsPath() {
   const cfg = vscode.workspace.getConfiguration('claudeRlMonitor').get('credentialsPath');
@@ -46,6 +39,29 @@ function readToken() {
   } catch {
     return null;
   }
+}
+
+function loadCache() {
+  try {
+    const raw = fs.readFileSync(CACHE_FILE, 'utf8');
+    const obj = JSON.parse(raw);
+    if (!obj || !obj.data || !obj.ts) return false;
+    if (Date.now() - obj.ts > CACHE_MAX_AGE_MS) return false;
+    lastSuccessData = obj.data;
+    lastSuccessTs   = obj.ts;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function saveCache() {
+  if (!lastSuccessData || !lastSuccessTs) return;
+  try {
+    const tmp = CACHE_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ data: lastSuccessData, ts: lastSuccessTs }));
+    fs.renameSync(tmp, CACHE_FILE);
+  } catch {}
 }
 
 function formatRemaining(value) {
@@ -70,8 +86,9 @@ function fetchUsage(token) {
       timeout: 10000,
       headers: {
         'Authorization': `Bearer ${token}`,
+        'anthropic-beta': 'oauth-2025-04-20',
         'Accept': 'application/json',
-        'User-Agent': 'claude-rl-monitor-vscode/1.1'
+        'User-Agent': 'claude-rl-monitor-vscode/1.2'
       }
     }, (res) => {
       let body = '';
@@ -164,6 +181,7 @@ async function poll() {
     lastSuccessData = result.data;
     lastSuccessTs = Date.now();
     backoffUntil = 0;
+    saveCache();
     renderFromData(result.data);
   } catch (err) {
     if (err.status === 429) {
@@ -182,9 +200,17 @@ async function poll() {
       return;
     }
 
-    statusBar.text = err.status === 429 ? '$(clock) Claude RL: rate-limited' : '$(error) Claude RL: error';
-    statusBar.tooltip = `Fetch failed: HTTP ${err.status || '?'} ${err.message}\n${err.body || ''}`;
-    statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    // No cached data — show a soft warning that does not paint the bar red unless persistent
+    if (err.status === 429) {
+      const waitMin = Math.ceil((backoffUntil - Date.now()) / 60000);
+      statusBar.text = `$(clock) Claude RL: cooling down (${waitMin}m)`;
+      statusBar.tooltip = `Usage endpoint returned HTTP 429. Will retry after ${waitMin} minutes. Click to force a refresh anyway.`;
+      statusBar.backgroundColor = undefined;
+    } else {
+      statusBar.text = '$(warning) Claude RL: fetch failed';
+      statusBar.tooltip = `Fetch failed: HTTP ${err.status || '?'} ${err.message}\n${err.body || ''}`;
+      statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    }
   }
 }
 
@@ -196,9 +222,18 @@ function startTimer() {
 function activate(context) {
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.command = 'claudeRlMonitor.refresh';
-  statusBar.text = '$(sync~spin) Claude RL';
-  statusBar.tooltip = 'Loading rate limit data…';
   statusBar.show();
+
+  // Render cached data immediately if available so we don't show "loading" or "rate-limited"
+  // when a perfectly valid cache exists from the previous session.
+  const cached = loadCache();
+  if (cached) {
+    renderFromData(lastSuccessData);
+  } else {
+    statusBar.text = '$(sync~spin) Claude RL';
+    statusBar.tooltip = 'Loading rate limit data…';
+  }
+
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
@@ -218,7 +253,8 @@ function activate(context) {
     dispose: () => { if (pollTimer) clearInterval(pollTimer); }
   });
 
-  poll();
+  // Stagger the first poll so simultaneous activations across windows don't burst the endpoint.
+  setTimeout(poll, FIRST_POLL_DELAY_MS);
   startTimer();
 }
 
