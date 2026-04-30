@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-04-30
+
+### Documentation
+- Top-level README: rewritten Quickstart that installs hooks + skill + agent + VS Code extension in one block. Replaced the two old "Install — VS Code" / "Install — Claude Code hooks" sections with a single "Sub-READMEs" pointer table.
+- New `agents/README.md` covering the `budget-orchestrator` install, routing rule, protocol summary, hard rules, and customization knobs.
+- New `skills/README.md` covering the `budget-check` skill, decision matrix, and pairing with the gate hook.
+- `hooks/README.md` extended to cover all 8 hooks (4 visibility + 4 orchestration), the new state files (`.rl_cache.json`, `rl-sessions/`, `memory-bank/`), and the env-var override knobs.
+- README clarifies that the `seven_day_sonnet` field is not in the statusLine input as of Claude Code v2.1.119 — only the VS Code extension sees it.
+
 ## [0.3.0] — 2026-04-29
 
 ### Added — budget-aware subagent orchestration

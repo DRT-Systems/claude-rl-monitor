@@ -16,14 +16,47 @@
 
 Monitor Claude Pro / Max usage limits (5-hour session + 7-day weekly) and orchestrate context handoff when limits are hit.
 
-Two complementary parts:
+Three complementary layers:
 
 | Component | Purpose |
 |---|---|
 | **vscode-extension/** | Status bar item in VS Code showing live 5h / 7d / Sonnet usage with countdown to reset. |
-| **hooks/** | Claude Code hooks for the CLI: warns at 80%, captures handoff state on `StopFailure(rate_limit)`, restores it on `SessionStart`. |
+| **hooks/** (visibility) | Claude Code CLI hooks: render statusline, warn at 80%, capture handoff state on `StopFailure(rate_limit)`, restore it on `SessionStart`. |
+| **hooks/** + **skills/** + **agents/** (orchestration) | Budget-aware subagent orchestrator. Hard-blocks `Task` calls at 85%, plans batch sizes from headroom, instructs subagents to checkpoint state when budget gets tight, replays checkpoints after the rate-limit window resets. |
 
 Works with Claude Pro and Max plans (OAuth auth) — does **not** require an API key.
+
+## Quickstart
+
+```bash
+git clone https://github.com/DRT-Systems/claude-rl-monitor.git
+cd claude-rl-monitor
+
+# Hooks + skill + agent
+mkdir -p ~/.claude/hooks ~/.claude/skills/budget-check ~/.claude/agents
+cp hooks/*.js                     ~/.claude/hooks/
+cp skills/budget-check/SKILL.md   ~/.claude/skills/budget-check/
+cp agents/budget-orchestrator.md  ~/.claude/agents/
+
+# Merge docs/settings-example.json into ~/.claude/settings.json
+# (statusLine, UserPromptSubmit, StopFailure, SessionStart, PreToolUse(Task))
+
+# VS Code extension
+cd vscode-extension
+npm install -g @vscode/vsce
+vsce package
+code --install-extension claude-rl-monitor-*.vsix
+```
+
+Reload VS Code window. Restart any open Claude Code CLI sessions.
+
+In any Claude Code session, kick off the orchestrator:
+
+```
+Use the budget-orchestrator agent. Task: <multi-step work description>.
+```
+
+Or — if you also install the global rule (`~/.claude/rules/common/agents.md`) from this repo's [agents/README.md](agents/README.md) — every `Task` dispatch is auto-routed through `budget-orchestrator` without you having to ask.
 
 ---
 
@@ -38,58 +71,22 @@ This repo fills the gap with two minimal-footprint components:
 
 ---
 
-## Install — VS Code extension
+## Sub-READMEs
 
-```bash
-git clone https://github.com/DRT-Systems/claude-rl-monitor.git
-cd claude-rl-monitor/vscode-extension
-npm install -g @vscode/vsce
-vsce package --allow-missing-repository
-code --install-extension claude-rl-monitor-1.1.0.vsix
-```
+Per-component READMEs hold the details:
 
-Reload VS Code window. Status bar (bottom right) shows:
-
-```
-✓ 5h:38%  7d:33%  ↺1h30m
-```
-
-Color-coded: green <50%, blue ≥50%, yellow ≥80%, red ≥90%.
-
-### Configuration
-
-| Setting | Default | Range |
-|---|---|---|
-| `claudeRlMonitor.pollIntervalSeconds` | 300 | 120–1800 |
-| `claudeRlMonitor.credentialsPath` | `~/.claude/.credentials.json` | absolute path |
-
-The extension polls `https://api.anthropic.com/api/oauth/usage` (an undocumented endpoint discovered by the community) using the OAuth token from `~/.claude/.credentials.json`. On HTTP 429 it backs off (honoring `Retry-After`) and shows cached data so the bar does not flap.
-
----
-
-## Install — Claude Code hooks (CLI)
-
-Copy the four hook scripts:
-
-```bash
-mkdir -p ~/.claude/hooks
-cp hooks/*.js ~/.claude/hooks/
-```
-
-Then merge the snippet from [`docs/settings-example.json`](docs/settings-example.json) into `~/.claude/settings.json`. The `statusLine` entry replaces any previous one — the script inlines support for the [caveman](https://github.com/JuliusBrussee/caveman) plugin's mode indicator so you do not lose it.
-
-### What each hook does
-
-| Hook | Event | Behavior |
-|---|---|---|
-| `rl-statusline.js` | `statusLine` | Reads `rate_limits.*.used_percentage` from the JSON Claude Code feeds the statusline; renders `[CAVEMAN] │ 5h:38% 7d:33% ↺1h30m`; writes `~/.claude/.rl_warn` flag at ≥80%. |
-| `rl-warn.js` | `UserPromptSubmit` | When flag exists, injects an `additionalContext` warning into the next message. Auto-snoozes 10 min between warnings. |
-| `rl-stop-failure.js` | `StopFailure(rate_limit)` | Parses the current session JSONL → extracts active todos + last 10 modified files + first user message; writes `~/.claude/rl-handoff.json`; sends a Windows balloon notification. |
-| `rl-session-start.js` | `SessionStart` (startup only) | If a handoff file <8h old exists for the same project, injects it as `additionalContext` then deletes it (one-shot). |
+| Directory | Covers |
+|---|---|
+| [`vscode-extension/README.md`](vscode-extension/README.md) | Extension build, install, settings, polling behavior |
+| [`hooks/README.md`](hooks/README.md) | All 8 hooks (visibility + orchestration), state files, env-var override knobs |
+| [`skills/README.md`](skills/README.md) | The `budget-check` skill and decision matrix |
+| [`agents/README.md`](agents/README.md) | The `budget-orchestrator` agent and its protocol |
 
 ### Caveat — Claude Pro auth and the statusLine hook
 
 The `statusLine` hook receives `rate_limits` data only when Claude Code emits it. With Claude Pro / Max OAuth auth, this is reliable on Claude Code v2.1.80+. If you authenticate with an API key, token counts are exposed differently and the hook still works. If neither exposes the data, the bar stays empty but does not error.
+
+The `seven_day_sonnet` field is **not** in the statusLine input as of Claude Code v2.1.119 — only the VS Code extension (which polls the OAuth endpoint directly) sees it. Once Anthropic adds it to the statusLine input, the CLI hook will render it automatically.
 
 ---
 
@@ -113,9 +110,9 @@ claude-rl-monitor/
 ├── CHANGELOG.md
 ├── LICENSE                        ← MIT
 ├── vscode-extension/
-│   ├── extension.js               ← VS Code extension entry point
+│   ├── extension.js
 │   ├── package.json
-│   ├── README.md
+│   ├── README.md                  ← extension docs
 │   └── CHANGELOG.md
 ├── hooks/
 │   ├── rl-statusline.js           ← terminal statusLine
@@ -123,15 +120,16 @@ claude-rl-monitor/
 │   ├── rl-stop-failure.js         ← StopFailure(rate_limit) handoff
 │   ├── rl-session-start.js        ← SessionStart handoff replay
 │   ├── rl-gate.js                 ← PreToolUse(Task) hard block at 85%
-│   ├── rl-budget.js               ← budget query utility for skill/agent
+│   ├── rl-budget.js               ← budget query utility
 │   ├── rl-checkpoint.js           ← suspended-execution ledger
 │   ├── rl-memory-bank.js          ← Cline 6-file hierarchy
-│   └── README.md
+│   └── README.md                  ← hooks docs
 ├── skills/
-│   └── budget-check/
-│       └── SKILL.md
+│   ├── budget-check/SKILL.md
+│   └── README.md                  ← skills docs
 ├── agents/
-│   └── budget-orchestrator.md
+│   ├── budget-orchestrator.md
+│   └── README.md                  ← agents docs
 └── docs/
     └── settings-example.json      ← snippet to merge into ~/.claude/settings.json
 ```
