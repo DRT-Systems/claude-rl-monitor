@@ -6,16 +6,40 @@ Status bar item showing Claude Pro / Max usage in real time.
 ✓ 5h:38%  7d:33%  ↺1h30m
 ```
 
-## Build and install
+## Install
+
+### From GitHub Releases (recommended)
+
+1. Download the latest `claude-rl-monitor-<version>.vsix` from [Releases](https://github.com/DRT-Systems/claude-rl-monitor/releases).
+2. Install:
+   ```bash
+   code --install-extension claude-rl-monitor-<version>.vsix
+   ```
+3. Reload window: `Ctrl+Shift+P` → `Developer: Reload Window`.
+
+### Build from source
 
 ```bash
-npm install -g @vscode/vsce
 cd vscode-extension
-vsce package --allow-missing-repository
-code --install-extension claude-rl-monitor-1.1.0.vsix
+npx vsce package
+code --install-extension claude-rl-monitor-$(node -p "require('./package.json').version").vsix
 ```
 
-Reload window: `Ctrl+Shift+P` → `Developer: Reload Window`.
+`npx vsce package` produces `claude-rl-monitor-<version>.vsix` using the `version` field in `package.json`. The `*.vsix` artifact is gitignored — rebuild whenever needed.
+
+## Publish a release (maintainers)
+
+1. Bump `version` in `vscode-extension/package.json` and add a CHANGELOG entry.
+2. Commit and push.
+3. Build: `cd vscode-extension && npx vsce package`
+4. Tag and release:
+   ```bash
+   VERSION=$(node -p "require('./vscode-extension/package.json').version")
+   git tag -a "v$VERSION" -m "v$VERSION"
+   git push origin "v$VERSION"
+   gh release create "v$VERSION" "vscode-extension/claude-rl-monitor-$VERSION.vsix" \
+     --title "v$VERSION" --notes-from-tag
+   ```
 
 ## Settings
 
