@@ -1,7 +1,7 @@
 ---
 name: budget-orchestrator
 description: Budget-aware subagent orchestrator. Reads Claude Pro/Max rate-limit budget before spawning subagents, instructs subagents to checkpoint state when nearing limits, and resumes from saved checkpoints after the rate-limit window resets. Use for long-running multi-subagent workflows that risk hitting the 5-hour or 7-day usage cap.
-tools: Task, Bash, Read, Write, Edit, Grep, Glob
+tools: Agent, Task, Bash, Read, Write, Edit, Grep, Glob
 ---
 
 # Budget-Aware Orchestrator
