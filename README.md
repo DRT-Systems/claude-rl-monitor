@@ -40,12 +40,20 @@ cp agents/budget-orchestrator.md  ~/.claude/agents/
 
 # Merge docs/settings-example.json into ~/.claude/settings.json
 # (statusLine, UserPromptSubmit, StopFailure, SessionStart, PreToolUse(Task))
+```
 
-# VS Code extension
+VS Code extension — pick one:
+
+```bash
+# Option A — install prebuilt VSIX from GitHub Releases (recommended)
+#   Download claude-rl-monitor-<version>.vsix from
+#   https://github.com/DRT-Systems/claude-rl-monitor/releases
+code --install-extension claude-rl-monitor-<version>.vsix
+
+# Option B — build from source
 cd vscode-extension
-npm install -g @vscode/vsce
-vsce package
-code --install-extension claude-rl-monitor-*.vsix
+npx vsce package
+code --install-extension claude-rl-monitor-$(node -p "require('./package.json').version").vsix
 ```
 
 Reload VS Code window. Restart any open Claude Code CLI sessions.
