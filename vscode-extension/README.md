@@ -3,8 +3,19 @@
 Status bar item showing Claude Pro / Max usage in real time.
 
 ```
-✓ 5h:38%  7d:33%  ↺1h30m
+✓ 5h:38%  7d:33%  Sonnet:56%  ↺1h30m
 ```
+
+Status icon and background color reflect the highest of the three percentages:
+
+| Max % | Icon | Background |
+|---|---|---|
+| < 50 | `$(check)` | normal |
+| ≥ 50 | `$(pulse)` | normal |
+| ≥ 80 | `$(warning)` | warning |
+| ≥ 90 | `$(error)` | error |
+
+Click the status bar item to force a refresh. Hover for a per-window breakdown with reset countdowns and data age.
 
 ## Install
 
@@ -52,7 +63,13 @@ code --install-extension claude-rl-monitor-$(node -p "require('./package.json').
 
 Every poll, fetches `https://api.anthropic.com/api/oauth/usage` with the OAuth token from `~/.claude/.credentials.json` → `claudeAiOauth.accessToken`. Renders 5-hour, 7-day, and 7-day Sonnet utilization with reset countdowns.
 
-On HTTP 429, honors `Retry-After` and shows cached data to avoid flapping.
+Required headers: `Authorization: Bearer <token>` plus `anthropic-beta: oauth-2025-04-20`. Without the beta header the endpoint returns HTTP 401 with the misleading message `OAuth authentication is currently not supported`.
+
+### Resilience
+
+- **Disk cache** at `~/.claude/.rl_cache.json` (1-hour TTL). Last-known-good data renders immediately on activation, even after VS Code reload or while the endpoint is rate-limiting. The same cache file is consumed by the [`rl-gate.js`](../hooks/rl-gate.js) and [`rl-budget.js`](../hooks/rl-budget.js) hooks — the extension is the single writer.
+- **Staggered first poll** (5 s after activation) so simultaneous activations across multiple windows do not burst the endpoint.
+- **HTTP 429 backoff** honors `Retry-After`; falls back to a 10-minute window when the header is absent. With cache, the bar keeps showing cached data with a tooltip note. Without cache, the bar shows `$(clock) Claude RL: cooling down (Nm)` instead of a hard error.
 
 ## Attribution
 
