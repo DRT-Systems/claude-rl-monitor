@@ -136,7 +136,7 @@ process.stdin.on('end', () => {
     const which = [reason5, reason7].filter(Boolean).join(' + ');
     return block(
       `Subagent budget gate: ${which}. CHECKPOINT NOW. ` +
-      `Save your current state via:  echo '{...}' | node ~/claude-rl-monitor/hooks/rl-checkpoint.js save  ` +
+      `Save your current state via:  echo '{...}' | node ~/.claude/hooks/rl-checkpoint.js save  ` +
       `then return literally: CHECKPOINTED <id> — orchestrator: resume after reset. ` +
       `Resets in ${fmtReset(cache?.five_hour?.resets_at)}.`,
       raw

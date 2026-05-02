@@ -20,7 +20,7 @@ Query the current rate-limit budget and decide whether spawning more subagents i
 Run:
 
 ```bash
-node ~/claude-rl-monitor/hooks/rl-budget.js
+node ~/.claude/hooks/rl-budget.js
 ```
 
 Returns JSON like:
@@ -44,7 +44,7 @@ Returns JSON like:
 Run:
 
 ```bash
-node ~/claude-rl-monitor/hooks/rl-checkpoint.js list
+node ~/.claude/hooks/rl-checkpoint.js list
 ```
 
 Returns a list of `{id, created_at, task_description, blocked_reason, resume_after}` records. Anything in this list is work that was suspended due to a previous rate-limit hit and should be resumed before starting new work.

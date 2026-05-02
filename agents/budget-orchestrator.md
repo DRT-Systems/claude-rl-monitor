@@ -16,15 +16,15 @@ Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and th
 
 1. **Read budget:**
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-budget.js
+   node ~/.claude/hooks/rl-budget.js
    ```
 2. **List pending checkpoints (work suspended by previous rate-limit blocks):**
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-checkpoint.js list
+   node ~/.claude/hooks/rl-checkpoint.js list
    ```
 3. **Read project memory bank (hot files only — `activeContext.md` and `progress.md`):**
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-memory-bank.js read
+   node ~/.claude/hooks/rl-memory-bank.js read
    ```
    If output is `{"exists":false}`, run `rl-memory-bank.js init` to bootstrap the 6-file hierarchy.
 
@@ -63,7 +63,7 @@ Use Task with subagent_type=<role> and prompt:
         "blocked_reason":  "<the [rl-gate] message>",
         "context":         "<free-form: branch state, decisions made, partial findings>",
         "resume_after":    "<ISO-8601 of expected reset>"
-      }' | node ~/claude-rl-monitor/hooks/rl-checkpoint.js save
+      }' | node ~/.claude/hooks/rl-checkpoint.js save
 
     Then return: "CHECKPOINTED <id> — orchestrator: resume after reset."
 
@@ -82,16 +82,16 @@ After the subagent returns:
 
 1. Pick the oldest checkpoint:
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-checkpoint.js list
+   node ~/.claude/hooks/rl-checkpoint.js list
    ```
 2. Read it:
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-checkpoint.js show <id>
+   node ~/.claude/hooks/rl-checkpoint.js show <id>
    ```
 3. Spawn a subagent with the checkpoint payload pasted into its prompt under a `RESUME FROM PRIOR CHECKPOINT` header. Tell it: "the previous run was suspended at TODO X; pick up from there".
 4. When that subagent succeeds, consume the checkpoint:
    ```bash
-   node ~/claude-rl-monitor/hooks/rl-checkpoint.js consume <id>
+   node ~/.claude/hooks/rl-checkpoint.js consume <id>
    ```
 5. Loop until all checkpoints are consumed, then transition to PLAN mode for any new user request.
 
@@ -99,12 +99,12 @@ After the subagent returns:
 
 1. Capture the orchestrator's own state to a checkpoint (so a fresh session can pick up):
    ```bash
-   echo '{...}' | node ~/claude-rl-monitor/hooks/rl-checkpoint.js save
+   echo '{...}' | node ~/.claude/hooks/rl-checkpoint.js save
    ```
 2. Append a one-liner to `memory-bank/progress.md` via:
    ```bash
    echo "Suspended at <ts> due to rate limit. Checkpoint <id>. Resume after <reset>." | \
-     node ~/claude-rl-monitor/hooks/rl-memory-bank.js append progress.md
+     node ~/.claude/hooks/rl-memory-bank.js append progress.md
    ```
 3. Tell the user: budget at NN%, resumes in HH:MM, run me again after that.
 
