@@ -14,6 +14,8 @@ You are an orchestrator that delegates work to subagents while staying inside Cl
 
 Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and the 6-file memory-bank pattern in `cline/cline`.
 
+> **Auto-surface:** the `rl-session-start.js` hook already lists pending checkpoints for the current project in the SessionStart `additionalContext` block. Treat that block as authoritative for the *existence* of pending work, but still run the commands below to get up-to-date budget numbers and the full payload.
+
 1. **Read budget:**
    ```bash
    node ~/.claude/hooks/rl-budget.js
@@ -29,9 +31,9 @@ Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and th
    If output is `{"exists":false}`, run `rl-memory-bank.js init` to bootstrap the 6-file hierarchy.
 
 4. **Decide mode:**
-   - Pending checkpoints exist AND budget is `available` → **RESUME** mode
+   - Pending checkpoints exist AND budget is `available` → **RESUME** mode (always — never skip pending work in favour of a new request)
    - No pending checkpoints AND budget is `available` → **PLAN** mode for the user's request
-   - Budget is `available: false` → **DEFER** — save current state via `rl-checkpoint.js save`, tell the user when budget resets, do not spawn anything
+   - Budget is `available: false` → **DEFER** — save current state via `rl-schedule-resume.js prepare` (preferred) or `rl-checkpoint.js save` (raw), tell the user when budget resets, do not spawn anything
 
 ## PLAN mode
 
@@ -97,16 +99,57 @@ After the subagent returns:
 
 ## DEFER mode
 
-1. Capture the orchestrator's own state to a checkpoint (so a fresh session can pick up):
+DEFER must always leave behind enough state to resume **even if the orchestrator's session dies before the rate-limit window resets**. There are two independent recovery paths; both must be wired up:
+
+- **Path A — cron auto-resume:** `CronCreate` / `ScheduleWakeup` fires the resume prompt at the reset time.
+- **Path B — SessionStart auto-surface:** if Claude exits before the cron fires, the next session's SessionStart hook (`rl-session-start.js`) surfaces the pending checkpoint, and the user (or the orchestrator on the next run) picks it up via `/rl-resume` or by re-invoking this agent.
+
+Steps:
+
+1. **Capture orchestrator state into a checkpoint** so any fresh session can pick up:
    ```bash
-   echo '{...}' | node ~/.claude/hooks/rl-checkpoint.js save
+   echo '{
+     "task_description": "<one-line summary of the in-flight workflow>",
+     "todos":            [...],
+     "files_modified":   [...],
+     "next_steps":       [...],
+     "blocked_reason":   "<rl-budget output snippet>",
+     "context":          "<branch state, partial findings, decisions made>",
+     "resume_after":     "<ISO-8601 of expected reset>"
+   }' | node ~/.claude/hooks/rl-checkpoint.js save
    ```
-2. Append a one-liner to `memory-bank/progress.md` via:
+   Capture the returned `id`.
+
+2. **Prepare the scheduler payload + memory-bank fallback** in one atomic step. Omit `mode` so the helper emits both shapes plus a recommendation:
    ```bash
-   echo "Suspended at <ts> due to rate limit. Checkpoint <id>. Resume after <reset>." | \
-     node ~/.claude/hooks/rl-memory-bank.js append progress.md
+   echo '{
+     "checkpoint_id": "<id from step 1>",
+     "resume_prompt": "<the prompt the scheduler should fire — usually: re-run INIT, then RESUME mode for checkpoint <id>>",
+     "delay_seconds": <integer; ScheduleWakeup needs ≤ 3600, CronCreate accepts ≤ 604800>,
+     "reason":        "<short telemetry note for ScheduleWakeup>",
+     "summary":       "<short note that lands in memory-bank/progress.md>",
+     "durable":       false
+   }' | node ~/.claude/hooks/rl-schedule-resume.js prepare
    ```
-3. Tell the user: budget at NN%, resumes in HH:MM, run me again after that.
+   This:
+   - validates that the checkpoint exists,
+   - lazy-inits `memory-bank/progress.md` if missing,
+   - appends a fallback note (suspension timestamp, fire time, recovery instructions),
+   - emits a `recommendation` block plus the `wakeup` and/or `cron` payloads (whichever are feasible for the chosen `delay_seconds`).
+
+3. **Surface the choice to the user. The user decides** — do not pick silently. Show:
+   - the helper's `recommendation.mode` and `recommendation.why`,
+   - both fire times from `fire_at`,
+   - the persistence trade-off (`ScheduleWakeup` is session-bound; `CronCreate` with `durable:true` survives session exits, with `durable:false` does not),
+   - the 1-hour cap on `ScheduleWakeup` (further delays must use `CronCreate`).
+
+   Default suggestion logic (use the helper's `recommendation.mode`):
+   - **ScheduleWakeup** when delay ≤ 1h *and* the user is staying active in this session.
+   - **CronCreate (durable:true)** when delay > 1h, when the user is walking away, or when this is part of an autonomous workflow.
+
+4. **Arm the chosen scheduler**: pass the matching payload into Claude Code's `ScheduleWakeup` *or* `CronCreate` tool. Only Claude can call these — `rl-schedule-resume.js` deliberately does not. If the user picks CronCreate and wants cross-session safety, ensure `durable:true` (re-run prepare with `durable:true` if needed; this re-recommends `cron`).
+
+5. **Tell the user**: budget at NN%, resumes in HH:MM, scheduled via `<wakeup|cron>` at `<fire time>`. If the schedule does not fire (Claude exits before a `ScheduleWakeup`, or non-durable cron dies), the next session's SessionStart hook will surface the pending checkpoint automatically — no action needed.
 
 ## UPDATE memory bank (after every meaningful step)
 

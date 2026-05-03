@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-03
+
+### Added — auto-resume integration with ScheduleWakeup + CronCreate
+- **`hooks/rl-schedule-resume.js`** — new CLI utility. Atomic resume-prep that wires checkpoint + memory-bank + scheduler payload into one validated step. Supports both Claude Code core schedulers via `mode`:
+  - `mode: "wakeup"` — emits `{delaySeconds, prompt, reason}` for `ScheduleWakeup`. Bounds `[60, 3600]` (matches the runtime clamp). Best for in-session re-pace ≤ 1h.
+  - `mode: "cron"` — emits `{cron, prompt, recurring:false, durable}` for `CronCreate`, with the fire minute nudged off `:00` and `:30` to avoid fleet-spike marks. Bounds `[60, 604800]` (≤ 7 days). Set `durable:true` for cross-session persistence.
+  - When `mode` is omitted, emits both feasible shapes plus a `recommendation {mode, why}` so the orchestrator surfaces a side-by-side choice and the user picks.
+- **`commands/rl-resume.md`** + **`commands/README.md`** — new slash-command package. `/rl-resume [id]` lists pending checkpoints for the current project and routes the chosen one to the `budget-orchestrator` agent in **resume** mode. Manual counterpart to the SessionStart auto-surface.
+
+### Changed
+- **`hooks/rl-session-start.js`** — extended to also scan `~/.claude/rl-sessions/` for the current project on every fresh session start. Pending checkpoints are listed (not consumed) in the `additionalContext` block alongside any consumed handoff. This is the **fallback path** when `ScheduleWakeup` / non-durable `CronCreate` does not fire (e.g. Claude exited before the scheduled wakeup): the next session automatically surfaces the pending checkpoint, and `/rl-resume` or the orchestrator picks it up.
+- **`agents/budget-orchestrator.md`** — DEFER mode rewritten to use `rl-schedule-resume.js prepare` as the atomic step, then surface both scheduler options to the user with the helper's recommendation. INIT step notes that the SessionStart hook already auto-surfaces pending checkpoints.
+- **`hooks/README.md`** — updated for 9 scripts (was 8), new state-file row for `rl-schedule-resume.js`, expanded SessionStart description.
+
+### Notes
+- `memory-bank/progress.md` is a **soft dependency** of `rl-schedule-resume.js prepare`: lazy-created per-project on first use, never created at install time. The resume mechanism itself does not need it — the source of truth remains `~/.claude/rl-sessions/<id>.json`, which the SessionStart hook reads independently.
+
 ## [0.3.1] — 2026-04-30
 
 ### Documentation

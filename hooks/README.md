@@ -1,9 +1,9 @@
 # claude-rl-monitor — Claude Code hooks
 
-Eight Node.js scripts for the Claude Code CLI, split across two responsibilities:
+Nine Node.js scripts for the Claude Code CLI, split across two responsibilities:
 
-- **Visibility** (4 scripts) — show usage in the statusline, warn before the wall, save state when the wall is hit, replay state in the next session.
-- **Orchestration** (4 scripts) — gate subagent dispatch on budget, query budget for planning, persist suspended-execution state, manage a Cline-style memory bank.
+- **Visibility** (4 scripts) — show usage in the statusline, warn before the wall, save state when the wall is hit, replay state in the next session (now also surfaces pending checkpoints).
+- **Orchestration** (5 scripts) — gate subagent dispatch on budget, query budget for planning, persist suspended-execution state, manage a Cline-style memory bank, prepare a validated cron-resume payload.
 
 ## Install
 
@@ -21,7 +21,7 @@ Then merge [`../docs/settings-example.json`](../docs/settings-example.json) into
 | `rl-statusline.js` | `statusLine` | Renders `[CAVEMAN] │ 5h:38% 7d:33% ↺1h30m` and writes `~/.claude/.rl_warn` at ≥80%. |
 | `rl-warn.js` | `UserPromptSubmit` | Injects a warning into the next message when the flag is set. 10-min auto-snooze. |
 | `rl-stop-failure.js` | `StopFailure(rate_limit)` | Parses session JSONL → saves handoff JSON → sends a Windows balloon notification. |
-| `rl-session-start.js` | `SessionStart(startup)` | Injects saved handoff if <8h old for the same project, then deletes (one-shot). |
+| `rl-session-start.js` | `SessionStart(startup)` | Injects saved handoff if <8h old for the same project (one-shot, consumed on read), and lists every pending `rl-sessions/*.json` checkpoint for the current project (not consumed — surfaced so `/rl-resume` or the orchestrator can act). |
 
 ## Files — orchestration
 
@@ -31,6 +31,7 @@ Then merge [`../docs/settings-example.json`](../docs/settings-example.json) into
 | `rl-budget.js` | CLI utility | Returns `{available, thresholds, current, headroom, max_subagents, resets_in, cache_age_minutes, stale, reasoning}` JSON. Used by the [`budget-check`](../skills/budget-check/SKILL.md) skill and the [`budget-orchestrator`](../agents/budget-orchestrator.md) agent for planning before any `Task` call. Fail-open with `available: true` if `~/.claude/.rl_cache.json` is missing. |
 | `rl-checkpoint.js` | CLI utility | Suspended-execution ledger. Subcommands: `save` (stdin JSON), `list`, `show <id>`, `consume <id>`. Each record = `{id, created_at, project_dir, git: {branch, status}, payload}` where `payload` is the caller-supplied `{task_description, todos, files_modified, next_steps, blocked_reason, context, resume_after}`. `list` filters to the current `cwd`. Stored under `~/.claude/rl-sessions/<id>.json`. |
 | `rl-memory-bank.js` | CLI utility | Cline-style 6-file memory bank. Subcommands: `init [path]`, `read [--all]`, `append <file>`. Files: `projectbrief.md`, `productContext.md`, `systemPatterns.md`, `techContext.md`, `activeContext.md`, `progress.md` (the last two are "hot"; reload first on resume). |
+| `rl-schedule-resume.js` | CLI utility | Atomic resume-prep for both schedulers. Validates a checkpoint exists, lazy-inits + appends a fallback note to `memory-bank/progress.md`, and emits payloads bounded per scheduler: `wakeup` (`{delaySeconds, prompt, reason}`, delay ≤ 3600) for `ScheduleWakeup`, `cron` (`{cron, prompt, recurring:false, durable}`, delay ≤ 604800, off-minute jitter) for `CronCreate`. When `mode` is omitted, emits both shapes plus a `recommendation` so the orchestrator surfaces the choice to the user. Does not call any Claude tool itself; the on-disk side effects make the resume recoverable via the SessionStart auto-surface even if no scheduler fires. Subcommand: `prepare` (reads stdin JSON). |
 
 ## State files
 
@@ -42,8 +43,8 @@ All under `~/.claude/`:
 | `.rl_snooze` | `rl-warn.js` | `rl-warn.js` | 10 min |
 | `rl-handoff.json` | `rl-stop-failure.js` | `rl-session-start.js` | 8 hours, one-shot, project-scoped |
 | `.rl_cache.json` | VS Code extension | `rl-gate.js`, `rl-budget.js` | 1 hour (15 min stale threshold for the gate) |
-| `rl-sessions/<id>.json` | subagent (via `rl-checkpoint.js save`) | `budget-orchestrator` (via `rl-checkpoint.js list/show/consume`) | until consumed |
-| `<project>/memory-bank/*.md` | `rl-memory-bank.js append` | `rl-memory-bank.js read` | persistent in repo |
+| `rl-sessions/<id>.json` | subagent (via `rl-checkpoint.js save`) | `rl-session-start.js` (lists for cwd), `budget-orchestrator` (via `rl-checkpoint.js list/show/consume`), `rl-schedule-resume.js prepare` (validates) | until consumed |
+| `<project>/memory-bank/*.md` | `rl-memory-bank.js append`, `rl-schedule-resume.js prepare` (lazy-inits + appends `progress.md`) | `rl-memory-bank.js read` | persistent in repo |
 
 ## Override knobs (env vars)
 
