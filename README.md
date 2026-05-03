@@ -116,6 +116,8 @@ Beyond visibility, the repo ships a complete orchestration layer for keeping lon
 
 Together they answer "build me an agent that orchestrates subagents only when there's budget, and gracefully resumes after the rate-limit window resets." See the agent file for the full protocol.
 
+> **Note:** `ScheduleWakeup` and `CronCreate` are **Claude Code CLI features only**. The VS Code extension does not trigger, receive, or act on scheduled resumes — it only supplies the `~/.claude/.rl_cache.json` cache that the CLI hooks read for budget data.
+
 ## Repo layout
 
 ```

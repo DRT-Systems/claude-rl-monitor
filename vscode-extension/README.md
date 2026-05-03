@@ -90,13 +90,22 @@ Required headers: `Authorization: Bearer <token>` plus `anthropic-beta: oauth-20
 - **Staggered first poll** (5 s after activation) so simultaneous activations across multiple windows do not burst the endpoint.
 - **HTTP 429 backoff** honors `Retry-After`; falls back to a 10-minute window when the header is absent. With cache, the bar keeps showing cached data with a tooltip note. Without cache, the bar shows `$(clock) Claude RL: cooling down (Nm)` instead of a hard error.
 
-### Integration with ScheduleWakeup and CronCreate
+### ScheduleWakeup and CronCreate — CLI only
 
-The extension does not call schedulers directly, but it powers the scheduler path by keeping `~/.claude/.rl_cache.json` fresh for orchestration hooks.
+> **The VS Code extension plays no role in scheduling and is not involved in auto-resume.** `ScheduleWakeup` and `CronCreate` are Claude Code CLI features that fire inside a running (or relaunched) `claude` terminal process.
 
-- [`../hooks/rl-schedule-resume.js`](../hooks/rl-schedule-resume.js) prepares validated resume payloads for both `ScheduleWakeup` and `CronCreate`.
-- [`../agents/budget-orchestrator.md`](../agents/budget-orchestrator.md) uses those payloads in DEFER mode to surface a scheduler choice with a recommendation.
-- [`../commands/rl-resume.md`](../commands/rl-resume.md) provides manual resume via `/rl-resume` if a scheduled wakeup does not fire.
+The extension's only contribution to this flow is writing `~/.claude/.rl_cache.json`, which the CLI hooks read to decide whether budget headroom exists before preparing a resume payload. Without VS Code open, the cache is stale and the CLI hooks fail-open.
+
+| Scenario | What happens |
+|---|---|
+| CLI open + scheduler fires | Resume prompt delivered to the running `claude` session |
+| `CronCreate durable:true` + CLI closed | Claude Code relaunches and fires the prompt |
+| Non-durable cron or `ScheduleWakeup` + CLI closed | Scheduler does **not** fire — `rl-session-start.js` surfaces the checkpoint next time `claude` is opened manually |
+| VS Code extension | Unaffected in every scenario above — continues polling usage data only |
+
+- [`../hooks/rl-schedule-resume.js`](../hooks/rl-schedule-resume.js) (CLI utility) prepares validated resume payloads for both schedulers.
+- [`../agents/budget-orchestrator.md`](../agents/budget-orchestrator.md) invokes `rl-schedule-resume.js` in DEFER mode and surfaces the scheduler choice to the user.
+- [`../commands/rl-resume.md`](../commands/rl-resume.md) provides manual CLI resume via `/rl-resume` when a scheduled wakeup does not fire.
 
 ## Attribution
 
