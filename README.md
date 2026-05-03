@@ -38,6 +38,10 @@ cp hooks/*.js                     ~/.claude/hooks/
 cp skills/budget-check/SKILL.md   ~/.claude/skills/budget-check/
 cp agents/budget-orchestrator.md  ~/.claude/agents/
 
+# Slash commands (optional — manual checkpoint resume)
+mkdir -p ~/.claude/commands
+cp commands/*.md                  ~/.claude/commands/
+
 # Merge docs/settings-example.json into ~/.claude/settings.json
 # (statusLine, UserPromptSubmit, StopFailure, SessionStart, PreToolUse(Task))
 ```
@@ -86,9 +90,10 @@ Per-component READMEs hold the details:
 | Directory | Covers |
 |---|---|
 | [`vscode-extension/README.md`](vscode-extension/README.md) | Extension build, install, settings, polling behavior |
-| [`hooks/README.md`](hooks/README.md) | All 8 hooks (visibility + orchestration), state files, env-var override knobs |
+| [`hooks/README.md`](hooks/README.md) | All 9 hooks (visibility + orchestration), state files, env-var override knobs |
 | [`skills/README.md`](skills/README.md) | The `budget-check` skill and decision matrix |
 | [`agents/README.md`](agents/README.md) | The `budget-orchestrator` agent and its protocol |
+| [`commands/README.md`](commands/README.md) | The `/rl-resume` slash command |
 
 ### Caveat — Claude Pro auth and the statusLine hook
 
@@ -107,6 +112,7 @@ Beyond visibility, the repo ships a complete orchestration layer for keeping lon
 | [`hooks/rl-gate.js`](hooks/rl-gate.js) | `PreToolUse(Task)` hook | Hard-blocks subagent spawn at 85% (5h or 7d). Reads the same `~/.claude/.rl_cache.json` the VS Code extension writes. Fail-open if cache is missing. |
 | [`skills/budget-check/SKILL.md`](skills/budget-check/SKILL.md) | Skill | Planning-side query. Returns current usage, headroom, max safe subagents, and pending-checkpoint count. Pairs with [`hooks/rl-budget.js`](hooks/rl-budget.js). |
 | [`agents/budget-orchestrator.md`](agents/budget-orchestrator.md) | Agent definition | Strict init→plan→execute→checkpoint→resume protocol. Uses the [Cline 6-file memory-bank hierarchy](https://github.com/cline/cline) for project state and [`hooks/rl-checkpoint.js`](hooks/rl-checkpoint.js) for suspended-execution state. |
+| [`hooks/rl-schedule-resume.js`](hooks/rl-schedule-resume.js) | CLI utility (invoked from DEFER mode) | Atomic resume-prep. Validates a checkpoint, updates `memory-bank/progress.md`, and emits both `ScheduleWakeup` and `CronCreate` payloads (with a recommendation) so the orchestrator can surface the choice to the user. |
 
 Together they answer "build me an agent that orchestrates subagents only when there's budget, and gracefully resumes after the rate-limit window resets." See the agent file for the full protocol.
 
@@ -131,6 +137,7 @@ claude-rl-monitor/
 │   ├── rl-budget.js               ← budget query utility
 │   ├── rl-checkpoint.js           ← suspended-execution ledger
 │   ├── rl-memory-bank.js          ← Cline 6-file hierarchy
+│   ├── rl-schedule-resume.js      ← atomic resume-prep for ScheduleWakeup / CronCreate
 │   └── README.md                  ← hooks docs
 ├── skills/
 │   ├── budget-check/SKILL.md
@@ -138,6 +145,9 @@ claude-rl-monitor/
 ├── agents/
 │   ├── budget-orchestrator.md
 │   └── README.md                  ← agents docs
+├── commands/
+│   ├── rl-resume.md               ← /rl-resume slash command
+│   └── README.md                  ← commands docs
 └── docs/
     └── settings-example.json      ← snippet to merge into ~/.claude/settings.json
 ```

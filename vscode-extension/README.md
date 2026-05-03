@@ -32,11 +32,30 @@ Click the status bar item to force a refresh. Hover for a per-window breakdown w
 
 ```bash
 cd vscode-extension
+npm install
 npx vsce package
 code --install-extension claude-rl-monitor-$(node -p "require('./package.json').version").vsix
 ```
 
 `npx vsce package` produces `claude-rl-monitor-<version>.vsix` using the `version` field in `package.json`. The `*.vsix` artifact is gitignored — rebuild whenever needed.
+
+### Recompile only (no install)
+
+If you only want to rebuild the VSIX artifact:
+
+```bash
+cd vscode-extension
+npm install
+npx vsce package
+```
+
+On Windows PowerShell:
+
+```powershell
+Set-Location "c:\GitSync\claude-rl-monitor\vscode-extension"
+npm install
+npx vsce package
+```
 
 ## Publish a release (maintainers)
 
@@ -70,6 +89,14 @@ Required headers: `Authorization: Bearer <token>` plus `anthropic-beta: oauth-20
 - **Disk cache** at `~/.claude/.rl_cache.json` (1-hour TTL). Last-known-good data renders immediately on activation, even after VS Code reload or while the endpoint is rate-limiting. The same cache file is consumed by the [`rl-gate.js`](../hooks/rl-gate.js) and [`rl-budget.js`](../hooks/rl-budget.js) hooks — the extension is the single writer.
 - **Staggered first poll** (5 s after activation) so simultaneous activations across multiple windows do not burst the endpoint.
 - **HTTP 429 backoff** honors `Retry-After`; falls back to a 10-minute window when the header is absent. With cache, the bar keeps showing cached data with a tooltip note. Without cache, the bar shows `$(clock) Claude RL: cooling down (Nm)` instead of a hard error.
+
+### Integration with ScheduleWakeup and CronCreate
+
+The extension does not call schedulers directly, but it powers the scheduler path by keeping `~/.claude/.rl_cache.json` fresh for orchestration hooks.
+
+- [`../hooks/rl-schedule-resume.js`](../hooks/rl-schedule-resume.js) prepares validated resume payloads for both `ScheduleWakeup` and `CronCreate`.
+- [`../agents/budget-orchestrator.md`](../agents/budget-orchestrator.md) uses those payloads in DEFER mode to surface a scheduler choice with a recommendation.
+- [`../commands/rl-resume.md`](../commands/rl-resume.md) provides manual resume via `/rl-resume` if a scheduled wakeup does not fire.
 
 ## Attribution
 

@@ -1,5 +1,13 @@
 # Changelog — VS Code extension
 
+## [Unreleased]
+
+## [1.2.3] — 2026-05-03
+
+### Documentation
+- README: clarified local rebuild flow by adding explicit `npm install` before `npx vsce package`, plus a dedicated "Recompile only" section with a Windows PowerShell command block.
+- README: added explicit integration notes for `ScheduleWakeup` / `CronCreate` via `rl-schedule-resume.js`, `budget-orchestrator`, and `/rl-resume`.
+
 ## [1.2.2] — 2026-04-29
 
 ### Added

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-05-03
+
+### Documentation
+- Top-level README: added `commands/` install step in Quickstart, added `commands/README.md` to the sub-README table, corrected hook count to 9, and documented `rl-schedule-resume.js` plus the `commands/` subtree in the repo layout.
+- VS Code extension README: clarified local rebuild flow (`npm install` + `npx vsce package`), added a dedicated "Recompile only" section with a Windows PowerShell command block, and documented how scheduler-based resume (`ScheduleWakeup` / `CronCreate`) integrates through `rl-schedule-resume.js`, `budget-orchestrator`, and `/rl-resume`.
+- VS Code extension changelog: recorded the documentation updates under the extension release notes.
+
 ## [0.4.0] — 2026-05-03
 
 ### Added — auto-resume integration with ScheduleWakeup + CronCreate
