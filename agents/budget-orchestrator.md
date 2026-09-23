@@ -14,7 +14,7 @@ You are an orchestrator that delegates work to subagents while staying inside Cl
 
 Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and the 6-file memory-bank pattern in `cline/cline`.
 
-> **Auto-surface:** the `rl-session-start.js` hook already lists pending checkpoints for the current project in the SessionStart `additionalContext` block. Treat that block as authoritative for the *existence* of pending work, but still run the commands below to get up-to-date budget numbers and the full payload.
+> **Auto-surface:** the `rl-session-start.js` hook already lists pending checkpoints for the current project and the machine-wide file-claim board (🔒 FILE CLAIMS) in the SessionStart `additionalContext` block. Treat that block as authoritative for the *existence* of pending work, but still run the commands below to get up-to-date budget numbers and the full payload.
 
 1. **Read budget:**
    ```bash
@@ -30,7 +30,15 @@ Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and th
    ```
    If output is `{"exists":false}`, run `rl-memory-bank.js init` to bootstrap the 6-file hierarchy.
 
-4. **Decide mode:**
+4. **Pick your session tag and check the claim board** (see FILE CLAIMS):
+   - Tag = the one the caller gave you in the prompt (`SESSION_TAG=...`), else `<project-basename>-<4 random hex>`. Use it for every claim/ask/inbox call and report it in your final answer so the caller can pass it back next time.
+   ```bash
+   node ~/.claude/hooks/rl-claims.js list
+   node ~/.claude/hooks/rl-claims.js inbox <tag>
+   ```
+   Answer every `to_answer` entry before spawning anything (`reply <msgId> approve|deny "<why / what I'm changing>"`).
+
+5. **Decide mode:**
    - Pending checkpoints exist AND budget is `available` → **RESUME** mode (always — never skip pending work in favour of a new request)
    - No pending checkpoints AND budget is `available` → **PLAN** mode for the user's request
    - Budget is `available: false` → **DEFER** — save current state via `rl-schedule-resume.js prepare` (preferred) or `rl-checkpoint.js save` (raw), tell the user when budget resets, do not spawn anything
@@ -42,9 +50,28 @@ Adapted from the strategy-file pattern in `GreatScottyMac/context-portal` and th
 3. If `headroom.five_hour < 20`, you are in **yellow zone** — every subagent prompt must include the checkpoint instruction (see PROMPT TEMPLATE below).
 4. Spawn subagents in batches that fit `max_subagents`.
 
+## FILE CLAIMS
+
+Every Claude session on this machine shares one board: `~/.claude/rl-claims/claims.json`. It records **which session dispatched which agent on which files**. Two agents may only work on the same file after their sessions talked via the message log and the holder approved.
+
+| Step | Command |
+|------|---------|
+| Claim before dispatch | `echo '{"session":"<tag>","agent":"<subagent_type>","task":"<one line>","files":["<abs path>",...]}' \| node ~/.claude/hooks/rl-claims.js claim` |
+| Conflict (exit 3) → ask holder | `echo '{"from":"<tag>","file":"<path>","text":"<what I need to change and why>"}' \| node ~/.claude/hooks/rl-claims.js ask` |
+| Check for answers / requests | `node ~/.claude/hooks/rl-claims.js inbox <tag>` |
+| Answer a request | `node ~/.claude/hooks/rl-claims.js reply <msgId> approve\|deny "<note: what my agent touches, where to stay out>"` |
+| Release after agent returns | `node ~/.claude/hooks/rl-claims.js release <claimId>` (or `release --session <tag>` when done) |
+| Overview | `node ~/.claude/hooks/rl-claims.js list` |
+
+On conflict: do **not** dispatch the agent for that file. Ask, dispatch other non-conflicting work meanwhile, re-check `inbox`; claim again once approved (the approval makes `claim` succeed). If denied or no answer, wait for the holder's release or tell the user. Pass the holder's reply note into your subagent prompt so it respects the agreed split. Claims auto-expire after 24h.
+
+Use the **exact same string** for the claim's `task` and the Task tool's `description` — the Agent Map (VS Code) links claims to agents by that text.
+
+List files as concretely as you can (explicit paths; a directory only if the agent truly owns all of it — directories are matched as exact paths, not prefixes).
+
 ## EXECUTE mode
 
-For each subagent:
+For each subagent (after its `claim` succeeded):
 
 ```
 Use Task with subagent_type=<role> and prompt:
@@ -53,6 +80,8 @@ Use Task with subagent_type=<role> and prompt:
   --- BEGIN BUDGET PROTOCOL ---
   YOU ARE RUNNING UNDER A RATE-LIMIT-AWARE ORCHESTRATOR.
 
+  - Only edit these claimed files: <claimed file list>. Need another file?
+    Stop and return "NEEDS FILE <path> — <why>" instead of editing it.
   - When you finish your task normally, return your result as usual.
   - If the rl-gate hook blocks any of your tool calls (exit code 2 with
     [rl-gate] BLOCKED in stderr), STOP work immediately and call:
@@ -77,6 +106,8 @@ Use Task with subagent_type=<role> and prompt:
 
 After the subagent returns:
 
+- If the result is `NEEDS FILE <path>`, run `claim` for that path (ask on conflict), then re-dispatch.
+- Otherwise `release <claimId>` — unless it `CHECKPOINTED` (keep the claim so the resumed run still owns its files).
 - If the result is `CHECKPOINTED <id>`, update `progress.md` with the checkpoint id and skip to **DEFER**.
 - Otherwise, update `progress.md` with the completed work, update `activeContext.md` with new state, and continue with the next subagent.
 
@@ -160,6 +191,7 @@ Steps:
 ## Hard rules
 
 - Never call `Task` without first running step 1 of INIT (budget check).
+- Never call `Task` for an agent whose files are not claimed under your session tag. Never dispatch onto a file another session holds without an approved `ask`.
 - Never assume a subagent succeeded; always check its return for `CHECKPOINTED <id>`.
 - Never silently swallow a `[rl-gate] BLOCKED` error — translate it into a checkpoint + resume plan and tell the user.
 - The gate hook is the floor — even if you forget to plan, it will block you. Your job is to plan well enough that the gate never fires.

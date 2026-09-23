@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
+<title>Agent Map</title>
+<style>
+  :root {
+    --bg: var(--vscode-editor-background);
+    --fg: var(--vscode-foreground);
+    --muted: var(--vscode-descriptionForeground);
+    --card: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+    --border: var(--vscode-widget-border, var(--vscode-panel-border, #8884));
+    --hover: var(--vscode-list-hoverBackground);
+    --focus: var(--vscode-focusBorder);
+    --ok: var(--vscode-testing-iconPassed, #73c991);
+    --warn: var(--vscode-editorWarning-foreground, #cca700);
+    --err: var(--vscode-errorForeground, #f48771);
+    --idle: var(--vscode-disabledForeground, #8888);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 32px 48px; background: var(--bg); color: var(--fg);
+         font-family: var(--vscode-font-family); font-size: 13px; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 28px 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .sub { color: var(--muted); margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .sub label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .layout { display: flex; gap: 24px; align-items: flex-start; }
+  .maps { flex: 1; min-width: 0; overflow-x: auto; }
+  .session { margin-bottom: 18px; }
+
+  /* tree */
+  /* children stack below the parent, indented, so any depth stays inside the column */
+  .node { display: flex; flex-direction: column; align-items: flex-start; }
+  .kids { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 0 12px; padding-left: 20px; border-left: 1px solid var(--border); }
+  .kids > .node { position: relative; }
+  .kids > .node::before { content: ""; position: absolute; left: -20px; top: 20px; width: 20px; border-top: 1px solid var(--border); }
+
+  .card { width: 300px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+          background: var(--card); cursor: pointer; flex-shrink: 0; }
+  .card:hover { background: var(--hover); }
+  .card.sel { outline: 1px solid var(--focus); }
+  .card .t { display: flex; gap: 8px; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card.root .t { font-weight: 600; }
+  .card .m { color: var(--muted); font-size: 12px; margin: 3px 0 0 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caret { width: 14px; margin-left: -4px; flex-shrink: 0; color: var(--muted); text-align: center; border-radius: 3px; user-select: none; }
+  .caret:hover { background: var(--hover); color: var(--fg); }
+  .sub button { background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 4px; padding: 2px 8px; cursor: pointer; font: inherit; }
+  .sub button:hover { background: var(--hover); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex-shrink: 0; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+  .chips { display: flex; gap: 6px; margin: 5px 0 0 26px; flex-wrap: wrap; }
+  .chip { font-size: 11px; padding: 0 6px; border-radius: 9px; border: 1px solid var(--border); color: var(--muted); }
+  .chip.lock { color: var(--fg); }
+  .chip.pending { color: var(--warn); border-color: var(--warn); }
+  .chip.approve { color: var(--ok); border-color: var(--ok); }
+  .chip.deny { color: var(--err); border-color: var(--err); }
+
+  /* details */
+  .details { width: 340px; flex-shrink: 0; position: sticky; top: 16px; border: 1px solid var(--border);
+             border-radius: 6px; background: var(--card); padding: 14px 16px; }
+  .details h3 { margin: 0 0 10px; font-size: 14px; }
+  .details dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+  .details dt { color: var(--muted); }
+  .details dd { margin: 0; overflow-wrap: anywhere; }
+  .details ul { margin: 6px 0 0; padding-left: 18px; }
+  .details li { overflow-wrap: anywhere; margin-bottom: 2px; }
+  .empty { color: var(--muted); }
+  .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .acts button { background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 4px; padding: 3px 10px; cursor: pointer; font: inherit; }
+  .acts button:hover { background: var(--hover); }
+  .acts button.danger { color: var(--err); border-color: var(--err); }
+  .lastmsg { white-space: pre-wrap; color: var(--muted); max-height: 180px; overflow: auto; margin: 6px 0 0; }
+
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  td.file { overflow-wrap: anywhere; }
+
+  @media (max-width: 900px) { .layout { flex-direction: column; } .details { position: static; width: 100%; } }
+</style>
+</head>
+<body>
+<h1>Agent map</h1>
+<div class="sub">
+  <span id="summary">Loading…</span>
+  <button id="expandAll">Expand all</button><button id="collapseAll">Collapse all</button>
+  <label><input type="checkbox" id="onlyAgents" checked> Only open sessions or sessions with agents</label>
+</div>
+<div class="layout">
+  <div class="maps" id="maps"></div>
+  <aside class="details" id="details"><span class="empty">Click an agent for details.</span></aside>
+</div>
+<h2>Share requests</h2>
+<div id="asks"></div>
+<div id="unlinkedWrap"></div>
+
+<script>
+const vscode = acquireVsCodeApi();
+const state = Object.assign({ sel: null, onlyAgents: true, toggled: {}, all: null }, vscode.getState() || {});
+// collapsed = user's choice if they toggled it, else the default (closed sessions start collapsed)
+const collapsed = (key, def) => key in state.toggled ? state.toggled[key] : state.all ? state.all === 'shut' : def;
+const countAll = (id, byParent) => (byParent[id] || []).reduce((n, k) => { const c = countAll(k.id, byParent); return { all: n.all + 1 + c.all, run: n.run + (k.running ? 1 : 0) + c.run }; }, { all: 0, run: 0 });
+const hiddenChip = c => `<span class="chip">+${c.all} agent${c.all === 1 ? '' : 's'}${c.run ? ` · ${c.run} running` : ''}</span>`;
+let defaults = {};
+let data = null;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const tok = n => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
+const dur = ms => { const s = Math.round(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h}h ${m}m` : m ? `${m}m ${s % 60}s` : `${s}s`; };
+const model = m => !m ? '' : m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)(-.*)?$/, ' $1.$2').replace(/-(\d+)$/, ' $1')
+  .replace(/^\w/, c => c.toUpperCase());
+const ago = t => dur(Date.now() - t) + ' ago';
+
+$('onlyAgents').checked = state.onlyAgents;
+$('onlyAgents').onchange = e => { state.onlyAgents = e.target.checked; save(); render(); };
+function save() { vscode.setState(state); }
+
+function asksFor(files) {
+  return (data.messages || []).filter(m => files.includes(m.file));
+}
+
+function card(key, cls, running, title, meta, chips, caret) {
+  const c = caret == null ? '<span class="caret"></span>' : `<span class="caret" data-toggle="${esc(key)}" title="${caret ? 'Expand' : 'Collapse'}">${caret ? '▸' : '▾'}</span>`;
+  return `<div class="card ${cls} ${state.sel === key ? 'sel' : ''}" data-key="${esc(key)}">
+    <div class="t">${c}<span class="dot ${running ? 'on' : ''}"></span><span>${esc(title)}</span></div>
+    <div class="m">${esc(meta)}</div>${chips ? `<div class="chips">${chips}</div>` : ''}</div>`;
+}
+
+function agentChips(a) {
+  if (!a.claim) return '';
+  const c = a.claim, out = [];
+  out.push(c.released_at ? `<span class="chip">released · ${c.files.length} file${c.files.length === 1 ? '' : 's'}</span>`
+                         : `<span class="chip lock">🔒 ${c.files.length} file${c.files.length === 1 ? '' : 's'}</span>`);
+  for (const m of asksFor(c.files)) out.push(`<span class="chip ${m.verdict || 'pending'}">↔ ${m.verdict || 'ask pending'}</span>`);
+  return out.join('');
+}
+
+function tree(s, a, byParent) {
+  const kids = byParent[a.id] || [];
+  const key = s.id + ':' + a.id;
+  const meta = `${dur(a.ms)} · ${tok(a.tokens)} tokens`;
+  if (kids.length) defaults[key] = !a.running;
+  const shut = kids.length && collapsed(key, !a.running);
+  const chips = agentChips(a) + (shut ? hiddenChip(countAll(a.id, byParent)) : '');
+  return `<div class="node">${card(key, '', a.running, a.desc, meta, chips, kids.length ? shut : null)}
+    ${kids.length && !shut ? `<div class="kids">${kids.map(k => tree(s, k, byParent)).join('')}</div>` : ''}</div>`;
+}
+
+function renderMaps() {
+  const sessions = data.sessions.filter(s => !state.onlyAgents || s.agents.length || s.running);
+  const agents = data.sessions.reduce((n, s) => n + s.agents.length, 0);
+  const live = data.sessions.reduce((n, s) => n + s.agents.filter(a => a.running).length, 0);
+  $('summary').textContent = `${data.sessions.filter(s => s.running).length} open sessions · ${live} agents running · ${agents} agents (24h) · click an agent for details`;
+  if (!sessions.length) { $('maps').innerHTML = '<p class="empty">No sessions with agents in the last 24 hours.</p>'; return; }
+  defaults = {};
+  $('maps').innerHTML = sessions.map(s => {
+    const ids = new Set(s.agents.map(a => a.id));
+    const byParent = {};
+    for (const a of s.agents) (byParent[a.parent && ids.has(a.parent) ? a.parent : 'root'] ||= []).push(a);
+    for (const k in byParent) byParent[k].sort((x, y) => x.start - y.start);
+    const top = byParent.root || [];
+    const meta = [s.running ? (s.status === 'busy' ? 'working' : s.status) : 'closed', model(s.model), `${tok(s.tokens)} tokens in context`].filter(Boolean).join(' · ');
+    const key = s.id + ':root';
+    if (top.length) defaults[key] = !s.running;
+    const shut = top.length && collapsed(key, !s.running);
+    const chips = shut ? hiddenChip(countAll('root', byParent)) : '';
+    return `<div class="session"><div class="node">${card(key, 'root', s.running, s.title, meta, chips, top.length ? shut : null)}
+      ${top.length && !shut ? `<div class="kids">${top.map(a => tree(s, a, byParent)).join('')}</div>` : ''}</div></div>`;
+  }).join('');
+}
+
+function renderDetails() {
+  const el = $('details');
+  if (!state.sel) { el.innerHTML = '<span class="empty">Click an agent for details.</span>'; return; }
+  const [sid, aid] = state.sel.split(':');
+  const s = data.sessions.find(x => x.id === sid);
+  if (!s) { el.innerHTML = '<span class="empty">Session no longer in the last 24 hours.</span>'; return; }
+  if (aid === 'root') {
+    el.innerHTML = `<h3>${esc(s.title)}</h3><dl>
+      <dt>Status</dt><dd>${s.running ? `open · ${s.status === 'busy' ? 'working' : esc(s.status)}` : 'closed, last activity ' + ago(s.mtime)}</dd>
+      <dt>Project</dt><dd>${esc(s.project)}</dd>
+      <dt>Model</dt><dd>${esc(model(s.model) || '—')}</dd>
+      <dt>Context</dt><dd>${tok(s.tokens)} tokens</dd>
+      <dt>Agents</dt><dd>${s.agents.length} (${s.agents.filter(a => a.running).length} running)</dd>
+      <dt>Session</dt><dd>${esc(s.id)}</dd></dl>
+      <div class="acts"><button data-open="${esc(s.id)}">Open session</button></div>`;
+    return;
+  }
+  const a = s.agents.find(x => x.id === aid);
+  if (!a) { el.innerHTML = '<span class="empty">Agent not found.</span>'; return; }
+  const parent = s.agents.find(x => x.id === a.parent);
+  const c = a.claim;
+  const asks = c ? asksFor(c.files) : [];
+  el.innerHTML = `<h3>${esc(a.desc)}</h3><dl>
+    <dt>Status</dt><dd>${esc(a.state)}</dd>
+    <dt>Type</dt><dd>${esc(a.type)}</dd>
+    <dt>Model</dt><dd>${esc(model(a.model) || '—')}</dd>
+    <dt>Running time</dt><dd>${dur(a.ms)}</dd>
+    <dt>Context</dt><dd>${tok(a.tokens)} tokens</dd>
+    <dt>Spawned by</dt><dd>${esc(parent ? parent.desc : s.title)}</dd>
+    <dt>Claim</dt><dd>${c ? `${esc(c.session)} · ${c.released_at ? 'released ' + ago(Date.parse(c.released_at)) : 'held since ' + ago(Date.parse(c.claimed_at))}` : '<span class="empty">no claim linked</span>'}</dd>
+    <dt>Agent id</dt><dd>${esc(a.id)}</dd></dl>
+    <div class="acts">${a.running ? `
+      <button data-act="status" data-agent="${esc(a.id)}">Request status</button>
+      ${a.ctl === 'pause' ? `<button data-act="" data-agent="${esc(a.id)}">Resume</button>` : `<button data-act="pause" data-agent="${esc(a.id)}">Pause</button>`}
+      <button class="danger" data-act="stop" data-agent="${esc(a.id)}">Stop</button>` : ''}
+      <button data-open="${esc(s.id)}">Open session</button></div>
+    ${a.lastText ? `<h2>Last message</h2><div class="lastmsg">${esc(a.lastText)}</div>` : ''}
+    ${c ? `<h2>Claimed files</h2><ul>${c.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
+    ${asks.length ? `<h2>Share requests</h2><ul>${asks.map(m => `<li><b>${esc(m.from)} → ${esc(m.to)}</b> <span class="chip ${m.verdict || 'pending'}">${m.verdict || 'pending'}</span><br>${esc(m.text)}${m.reply ? `<br><i>${esc(m.reply)}</i>` : ''}</li>`).join('')}</ul>` : ''}`;
+}
+
+function renderAsks() {
+  const ms = (data.messages || []).slice().sort((x, y) => Date.parse(y.at) - Date.parse(x.at));
+  $('asks').innerHTML = ms.length ? `<table><tr><th>When</th><th>From → To</th><th>File</th><th>Request</th><th>Answer</th></tr>${ms.map(m => `
+    <tr><td>${ago(Date.parse(m.at))}</td><td>${esc(m.from)} → ${esc(m.to)}</td><td class="file">${esc(m.file)}</td>
+    <td>${esc(m.text)}</td><td><span class="chip ${m.verdict || 'pending'}">${m.verdict || 'pending'}</span> ${esc(m.reply || '')}</td></tr>`).join('')}</table>`
+    : '<p class="empty">No share requests in the last 24 hours.</p>';
+  const u = data.unlinked || [];
+  $('unlinkedWrap').innerHTML = u.length ? `<h2>Claims without a matching agent</h2><table><tr><th>Session</th><th>Agent</th><th>Task</th><th>Files</th><th>State</th></tr>${u.map(c => `
+    <tr><td>${esc(c.session)}</td><td>${esc(c.agent)}</td><td>${esc(c.task)}</td><td class="file">${c.files.map(esc).join('<br>')}</td>
+    <td>${c.released_at ? 'released' : 'held'}</td></tr>`).join('')}</table>` : '';
+}
+
+function render() { if (!data) return; renderMaps(); renderDetails(); renderAsks(); }
+
+$('expandAll').onclick = () => { state.toggled = {}; state.all = 'open'; save(); render(); };
+$('collapseAll').onclick = () => { state.toggled = {}; state.all = 'shut'; save(); render(); };
+$('maps').addEventListener('click', e => {
+  const t = e.target.closest('[data-toggle]');
+  if (t) { const k = t.dataset.toggle; state.toggled[k] = !collapsed(k, defaults[k]); save(); render(); return; }
+  const c = e.target.closest('.card');
+  if (!c) return;
+  state.sel = c.dataset.key; save(); render();
+});
+// ponytail: controls act at the agent's next tool call (hooks/agent-control.js); nothing can interrupt mid-thought
+$('details').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.open) vscode.postMessage({ cmd: 'open', session: b.dataset.open });
+  else if ('act' in b.dataset) vscode.postMessage({ cmd: 'control', agent: b.dataset.agent, action: b.dataset.act || null });
+});
+window.addEventListener('message', e => { data = e.data; render(); });
+vscode.postMessage('ready');
+</script>
+</body>
+</html>

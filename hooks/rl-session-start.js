@@ -114,6 +114,25 @@ function renderCheckpoints(records) {
   ].join('\n');
 }
 
+// File-claim board (rl-claims.js) — all sessions on this machine, not just cwd.
+function renderClaims() {
+  const s = readJsonSafe(path.join(CLAUDE_DIR, 'rl-claims', 'claims.json'));
+  const claims = (s?.claims || []).filter(c => Date.now() - Date.parse(c.claimed_at) < 24 * 3600 * 1000);
+  const open   = (s?.messages || []).filter(m => !m.verdict);
+  if (!claims.length && !open.length) return null;
+  const lines = [`🔒 FILE CLAIMS (${claims.length}) — files other agents are working on. Do not edit them without an approved ask.`, ''];
+  for (const c of claims) {
+    lines.push(`  • [${c.id}] session=${c.session} agent=${c.agent} since ${c.claimed_at}${c.task ? `  — ${c.task}` : ''}`);
+    for (const f of c.files) lines.push(`      ${f}`);
+  }
+  if (open.length) {
+    lines.push('', `Open share requests (${open.length}):`);
+    for (const m of open) lines.push(`  • [${m.id}] ${m.from} → ${m.to}: ${m.file} — ${m.text}`);
+  }
+  lines.push('', 'Details: node ~/.claude/hooks/rl-claims.js list   (budget-orchestrator answers asks in its INIT)');
+  return lines.join('\n');
+}
+
 let raw = '';
 process.stdin.on('data', chunk => { raw += chunk; });
 process.stdin.on('end', () => {
@@ -129,8 +148,9 @@ process.stdin.on('end', () => {
 
   const handoff = loadHandoff();
   const pending = loadPendingCheckpoints();
+  const claims  = renderClaims();
 
-  if (!handoff && pending.length === 0) {
+  if (!handoff && pending.length === 0 && !claims) {
     process.stdout.write(raw);
     process.exit(0);
     return;
@@ -139,6 +159,7 @@ process.stdin.on('end', () => {
   const blocks = [];
   if (handoff)             blocks.push(renderHandoff(handoff));
   if (pending.length > 0)  blocks.push(renderCheckpoints(pending));
+  if (claims)              blocks.push(claims);
   blocks.push('Acknowledge the saved state briefly, then continue from where we left off.');
 
   const output = {

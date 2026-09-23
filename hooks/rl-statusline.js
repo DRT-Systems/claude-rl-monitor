@@ -95,5 +95,13 @@ process.stdin.on('end', () => {
     parts.push(rl);
   }
 
+  // File claims from rl-claims.js (agents holding files / open share requests)
+  try {
+    const s = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'rl-claims', 'claims.json'), 'utf8'));
+    const live = (s.claims || []).filter(x => Date.now() - Date.parse(x.claimed_at) < 24 * 3600 * 1000);
+    const open = (s.messages || []).filter(m => !m.verdict).length;
+    if (live.length) parts.push(`${c('90')}│${RESET} ${c('36')}claims:${live.length}${RESET}` + (open ? ` ${c('33')}asks:${open}${RESET}` : ''));
+  } catch {}
+
   process.stdout.write(parts.join(' ') + '\n');
 });

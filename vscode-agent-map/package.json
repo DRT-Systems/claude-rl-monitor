@@ -1,0 +1,15 @@
+{
+  "name": "claude-agent-map",
+  "displayName": "Claude Agent Map",
+  "description": "Overview of Claude Code sessions, their subagents, tokens, file claims and share requests.",
+  "version": "0.0.4",
+  "publisher": "drt-systems",
+  "license": "UNLICENSED",
+  "repository": { "type": "git", "url": "https://github.com/DRT-Systems/claude-rl-monitor" },
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [{ "command": "agentMap.open", "title": "Claude: Open Agent Map" }]
+  }
+}
