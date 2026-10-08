@@ -327,6 +327,14 @@ function activate(context) {
       if (m === 'ready') return tick();
       if (m.cmd === 'open') return openSession(vscode, m.session, m.cwd);
       if (m.cmd === 'control') { setControl(m.agent, m.action); tick(); }
+      // via rl-claims.js so its store lock is respected; ids come from our own collect()
+      if (m.cmd === 'release') {
+        const ids = [].concat(m.ids || []).filter(id => /^[0-9a-f]{8}$/.test(id));
+        const hook = path.join(CLAUDE, 'hooks', 'rl-claims.js');
+        for (const id of ids) try { require('child_process').execFileSync('node', [hook, 'release', id], { timeout: 10000 }); }
+          catch (e) { vscode.window.showErrorMessage(`Release ${id} failed: ${e.message}`); }
+        return tick();
+      }
       if (m.cmd === 'select') { selFile = ours(m.file) ? m.file : null; return tick(); }
       // ponytail: snapshot at click time in OS temp; click again to refresh
       if (m.cmd === 'transcript' && ours(m.file)) {

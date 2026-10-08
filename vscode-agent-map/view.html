@@ -342,9 +342,12 @@ function renderAsks() {
     <td>${esc(m.text)}</td><td><span class="chip ${m.verdict || 'pending'}">${m.verdict || 'pending'}</span> ${esc(m.reply || '')}</td></tr>`).join('')}</table></div>`
     : '<p class="empty">No agent asked to share a claimed file in the last 24 hours.</p>');
   const u = data.unlinked || [];
-  $('unlinkedWrap').innerHTML = u.length ? `<h2>Claims without a matching agent <span class="n">${u.length}</span></h2><div class="tablewrap"><table><tr><th>Session</th><th>Agent</th><th>Task</th><th>Files</th><th>State</th></tr>${u.map(c => `
+  const held = u.filter(c => !c.released_at).map(c => c.id);
+  $('unlinkedWrap').innerHTML = u.length ? `<h2>Claims without a matching agent <span class="n">${u.length}</span>
+    ${held.length > 1 ? `<button class="btn danger" data-release="${held.join(',')}">${armed === held.join(',') ? 'Click again to release all' : `Release all ${held.length} held`}</button>` : ''}</h2>
+    <div class="tablewrap"><table><tr><th>Session</th><th>Agent</th><th>Task</th><th>Files</th><th>State</th></tr>${u.map(c => `
     <tr><td>${esc(c.session)}</td><td>${esc(c.agent)}</td><td>${esc(c.task)}</td><td class="file">${c.files.map(esc).join('<br>')}</td>
-    <td>${c.released_at ? 'released' : 'held'}</td></tr>`).join('')}</table></div>` : '';
+    <td>${c.released_at ? 'released' : `held <button class="btn danger" data-release="${esc(c.id)}" title="Free these files for other agents">${armed === c.id ? 'Click again' : 'Release'}</button>`}</td></tr>`).join('')}</table></div>` : '';
 }
 
 function render() { if (!data) return; renderPulse(); renderMaps(); renderDetails(); renderAsks(); }
@@ -359,6 +362,15 @@ $('maps').addEventListener('click', e => {
   state.sel = r.dataset.key; save(); render();
 });
 // ponytail: controls act at the agent's next tool call (hooks/agent-control.js); nothing can interrupt mid-thought
+let armed = null, armTimer; // data-release value awaiting its confirming click
+// two-step: first click arms the button (webviews have no confirm()), second click within 4s releases
+$('unlinkedWrap').addEventListener('click', e => {
+  const b = e.target.closest('[data-release]');
+  if (!b) return;
+  const ids = b.dataset.release;
+  if (armed !== ids) { armed = ids; clearTimeout(armTimer); armTimer = setTimeout(() => { armed = null; render(); }, 4000); render(); return; }
+  armed = null; vscode.postMessage({ cmd: 'release', ids: ids.split(',') });
+});
 $('details').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
