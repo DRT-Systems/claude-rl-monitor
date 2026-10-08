@@ -76,13 +76,41 @@ function firstTimestamp(file) {
   } catch { return null; }
 }
 
+// "Read C:\x.md", "Bash List files" — what the agent pane shows per tool call
+function toolLabel(t) {
+  const i = t.input || {};
+  const arg = i.description || i.file_path || i.path || i.pattern || i.command || i.url || i.query || i.prompt || '';
+  return { name: t.name, arg: String(arg).split('\n')[0].slice(0, 160) };
+}
+
+// Prompt + every tool call of ONE agent (the selected one) — full-file read, so only done on demand
+function agentDetail(file) {
+  const st = stat(file);
+  if (!st) return null;
+  return cached(file + '#detail', st, () => {
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    let prompt = null;
+    try {
+      const c = JSON.parse(lines[0]).message.content;
+      prompt = typeof c === 'string' ? c : c.filter(x => x.type === 'text').map(x => x.text).join('\n');
+    } catch {}
+    const tools = [];
+    for (const l of lines) {
+      if (!l.includes('"tool_use"')) continue;
+      try { const o = JSON.parse(l); if (o.type === 'assistant') for (const c of o.message.content) if (c.type === 'tool_use') tools.push(toolLabel(c)); } catch {}
+    }
+    return { file, prompt, tools };
+  });
+}
+
 function summarize(file, st) {
   return cached(file, st, () => {
     const objs = tailObjects(file, st.size);
-    let title = null, model = null, tokens = null, last = null, lastText = null;
+    let title = null, model = null, tokens = null, last = null, lastText = null, cwd = null;
     for (let i = objs.length - 1; i >= 0; i--) {
       const o = objs[i];
       if (!title && o.type === 'ai-title') title = o.aiTitle;
+      if (!cwd && o.cwd) cwd = o.cwd;
       if (!last && (o.type === 'user' || o.type === 'assistant')) last = o;
       if (!lastText && o.type === 'assistant' && Array.isArray(o.message && o.message.content)) {
         const t = o.message.content.filter(c => c.type === 'text').map(c => c.text).join('\n').trim();
@@ -99,7 +127,10 @@ function summarize(file, st) {
     const content = last && last.message && last.message.content;
     const finished = !!last && last.type === 'assistant' &&
       !(Array.isArray(content) && content.some(c => c.type === 'tool_use'));
-    return { title, model, tokens, finished, lastText, start: firstTimestamp(file) };
+    // pending tool_use on the last assistant turn → "Running …"; last turn a tool result → model is thinking
+    const pending = last && last.type === 'assistant' && Array.isArray(content) ? content.filter(c => c.type === 'tool_use').pop() : null;
+    const activity = pending ? toolLabel(pending) : last && last.type === 'user' ? { name: 'Thinking', arg: '' } : null;
+    return { title, model, tokens, finished, lastText, cwd, start: firstTimestamp(file), activity };
   });
 }
 
@@ -175,6 +206,7 @@ function collect() {
           id: aid, parent: meta.parentAgentId || null, type: meta.agentType || '?',
           desc: meta.description || meta.agentType || aid, model: a.model || meta.model || null,
           tokens: a.tokens ?? null, start, ms: end - start, running, notified: !!note, ctl, lastText: a.lastText || null,
+          file: jst ? jf : null, activity: running ? a.activity || null : null,
           state: running && ctl ? { pause: 'paused (holds at next tool call)', stop: 'stop requested', status: 'status requested' }[ctl] : state,
           claim: claims.find(c => c.task && c.task === meta.description) || null,
         });
@@ -188,7 +220,7 @@ function collect() {
       }
 
       sessions.push({
-        id, project: proj, title: sum.title || proj, model: sum.model, tokens: sum.tokens,
+        id, project: proj, cwd: sum.cwd, title: sum.title || proj, model: sum.model, tokens: sum.tokens,
         mtime: st.mtimeMs, running: !!proc, status: proc ? proc.status : 'closed', name: proc ? proc.name : null, agents,
       });
     }
@@ -206,21 +238,50 @@ function setControl(agent, action) {
   fs.renameSync(CONTROL + '.tmp', CONTROL);
 }
 
+// Claude resumes a session in the window's own project, so a session from another
+// folder must be opened by that folder's window. We leave a handoff file and
+// focus/open the window; its own Agent Map picks the file up (checkPending) and
+// opens the session there. No focus timing involved.
+const PENDING = path.join(CLAUDE, 'agent-map', 'pending-open.json');
+const isHere = (vscode, cwd) => {
+  const norm = p => path.resolve(p || '').toLowerCase();
+  return (vscode.workspace.workspaceFolders || []).some(f => norm(f.uri.fsPath) === norm(cwd));
+};
+
+function openSession(vscode, session, cwd) {
+  if (!cwd || isHere(vscode, cwd)) return vscode.commands.executeCommand('claude-vscode.editor.open', session);
+  fs.writeFileSync(PENDING, JSON.stringify({ session, cwd, at: Date.now() }));
+  vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(cwd), { forceNewWindow: true });
+}
+
+// ponytail: picked up on the 4s tick; a new window also checks at activation
+function checkPending(vscode) {
+  const p = readJson(PENDING);
+  if (!p || Date.now() - p.at > 60 * 1000 || !isHere(vscode, p.cwd)) return;
+  try { fs.unlinkSync(PENDING); } catch { return; } // another window of this folder won the race
+  vscode.commands.executeCommand('claude-vscode.editor.open', p.session);
+}
+
 function activate(context) {
   const vscode = require('vscode');
-  let panel = null;
+  let panel = null, selFile = null;
+  // ponytail: path comes from our own collect(); only .jsonl under ~/.claude/projects is accepted
+  const ours = f => typeof f === 'string' && f.endsWith('.jsonl') && path.resolve(f).startsWith(PROJECTS + path.sep);
   const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   bar.command = 'agentMap.open';
   bar.tooltip = 'Claude Agent Map';
   context.subscriptions.push(bar);
 
   const tick = () => {
+    checkPending(vscode);
     let data;
     try { data = collect(); } catch { bar.text = '$(hubot) agents: error'; bar.show(); return; }
     const running = data.sessions.reduce((n, s) => n + s.agents.filter(a => a.running).length, 0);
     const asks = data.messages.filter(m => !m.verdict).length;
     bar.text = `$(hubot) ${running} agent${running === 1 ? '' : 's'}` + (asks ? ` $(comment-discussion) ${asks}` : '');
     bar.show();
+    data.here = (vscode.workspace.workspaceFolders || []).map(f => f.uri.fsPath); // for "Only this project"
+    data.detail = selFile ? agentDetail(selFile) : null;
     if (panel && panel.visible) panel.webview.postMessage(data);
   };
   // ponytail: polls every 4s; switch to fs.watch if the projects folder gets huge
@@ -236,14 +297,17 @@ function activate(context) {
     panel.webview.html = fs.readFileSync(path.join(__dirname, 'view.html'), 'utf8');
     panel.webview.onDidReceiveMessage(m => {
       if (m === 'ready') return tick();
-      if (m.cmd === 'open') return vscode.commands.executeCommand('claude-vscode.editor.open', m.session);
+      if (m.cmd === 'open') return openSession(vscode, m.session, m.cwd);
       if (m.cmd === 'control') { setControl(m.agent, m.action); tick(); }
+      if (m.cmd === 'select') { selFile = ours(m.file) ? m.file : null; return tick(); }
+      if (m.cmd === 'transcript' && ours(m.file))
+        vscode.window.showTextDocument(vscode.Uri.file(m.file), { preview: true, viewColumn: vscode.ViewColumn.Beside });
     });
     panel.onDidDispose(() => { panel = null; });
   }));
 }
 
-module.exports = { activate, deactivate() {}, collect };
+module.exports = { activate, deactivate() {}, collect, agentDetail };
 
 if (require.main === module) {
   const d = collect();

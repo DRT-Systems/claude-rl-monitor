@@ -71,6 +71,15 @@
   .acts button:hover { background: var(--hover); }
   .acts button.danger { color: var(--err); border-color: var(--err); }
   .lastmsg { white-space: pre-wrap; color: var(--muted); max-height: 180px; overflow: auto; margin: 6px 0 0; }
+  .activity { margin: 10px 0 0; font-family: var(--vscode-editor-font-family); font-size: 12px; overflow-wrap: anywhere; }
+  .details details { margin-top: 12px; }
+  .details summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+  .prompt { white-space: pre-wrap; max-height: 260px; overflow: auto; margin: 6px 0 0; padding: 8px; border: 1px solid var(--border);
+            border-radius: 4px; font-family: var(--vscode-editor-font-family); font-size: 12px; }
+  .tools { list-style: none; padding: 0 !important; max-height: 260px; overflow: auto; }
+  .tools li { display: flex; gap: 8px; white-space: nowrap; }
+  .tools b { min-width: 44px; }
+  .tools span { color: var(--vscode-textLink-foreground); overflow: hidden; text-overflow: ellipsis; }
 
   table { border-collapse: collapse; width: 100%; }
   th, td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -85,7 +94,10 @@
 <div class="sub">
   <span id="summary">Loading…</span>
   <button id="expandAll">Expand all</button><button id="collapseAll">Collapse all</button>
-  <label><input type="checkbox" id="onlyAgents" checked> Only open sessions or sessions with agents</label>
+  <label><input type="checkbox" data-f="showClosed"> Show closed sessions</label>
+  <label><input type="checkbox" data-f="showEmpty"> Show sessions without agents</label>
+  <label><input type="checkbox" data-f="onlyHere"> Only this project</label>
+  <label><input type="checkbox" data-f="hideDone"> Hide finished agents</label>
 </div>
 <div class="layout">
   <div class="maps" id="maps"></div>
@@ -97,12 +109,15 @@
 
 <script>
 const vscode = acquireVsCodeApi();
-const state = Object.assign({ sel: null, onlyAgents: true, toggled: {}, all: null }, vscode.getState() || {});
+const state = Object.assign({ sel: null, toggled: {}, all: null, showClosed: false, showEmpty: true, onlyHere: false, hideDone: false, open: {} }, vscode.getState() || {});
+state.open ||= {}; // Prompt / Tool calls fold state survives the 4s re-render
+delete state.onlyAgents; // replaced by the four filters below
 // collapsed = user's choice if they toggled it, else the default (closed sessions start collapsed)
 const collapsed = (key, def) => key in state.toggled ? state.toggled[key] : state.all ? state.all === 'shut' : def;
 const countAll = (id, byParent) => (byParent[id] || []).reduce((n, k) => { const c = countAll(k.id, byParent); return { all: n.all + 1 + c.all, run: n.run + (k.running ? 1 : 0) + c.run }; }, { all: 0, run: 0 });
 const hiddenChip = c => `<span class="chip">+${c.all} agent${c.all === 1 ? '' : 's'}${c.run ? ` · ${c.run} running` : ''}</span>`;
 let defaults = {};
+let asked = null; // transcript last requested via 'select'
 let data = null;
 
 const $ = id => document.getElementById(id);
@@ -114,8 +129,13 @@ const model = m => !m ? '' : m.replace(/^claude-/, '').replace(/-(\d+)-(\d+)(-.*
   .replace(/^\w/, c => c.toUpperCase());
 const ago = t => dur(Date.now() - t) + ' ago';
 
-$('onlyAgents').checked = state.onlyAgents;
-$('onlyAgents').onchange = e => { state.onlyAgents = e.target.checked; save(); render(); };
+for (const cb of document.querySelectorAll('[data-f]')) {
+  cb.checked = state[cb.dataset.f];
+  cb.onchange = () => { state[cb.dataset.f] = cb.checked; save(); render(); };
+}
+const norm = p => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
+// agents after "Hide finished agents"; a parent waiting on a running child counts as running
+const shown = s => state.hideDone ? s.agents.filter(a => a.running) : s.agents;
 function save() { vscode.setState(state); }
 
 function asksFor(files) {
@@ -150,16 +170,20 @@ function tree(s, a, byParent) {
 }
 
 function renderMaps() {
-  const sessions = data.sessions.filter(s => !state.onlyAgents || s.agents.length || s.running);
+  const here = (data.here || []).map(norm);
+  const sessions = data.sessions.filter(s => (state.showClosed || s.running)
+    && (state.showEmpty || s.agents.length)
+    && (!state.onlyHere || here.includes(norm(s.cwd))));
   const agents = data.sessions.reduce((n, s) => n + s.agents.length, 0);
   const live = data.sessions.reduce((n, s) => n + s.agents.filter(a => a.running).length, 0);
   $('summary').textContent = `${data.sessions.filter(s => s.running).length} open sessions · ${live} agents running · ${agents} agents (24h) · click an agent for details`;
-  if (!sessions.length) { $('maps').innerHTML = '<p class="empty">No sessions with agents in the last 24 hours.</p>'; return; }
+  if (!sessions.length) { $('maps').innerHTML = '<p class="empty">No sessions match these filters.</p>'; return; }
   defaults = {};
   $('maps').innerHTML = sessions.map(s => {
-    const ids = new Set(s.agents.map(a => a.id));
+    const list = shown(s);
+    const ids = new Set(list.map(a => a.id));
     const byParent = {};
-    for (const a of s.agents) (byParent[a.parent && ids.has(a.parent) ? a.parent : 'root'] ||= []).push(a);
+    for (const a of list) (byParent[a.parent && ids.has(a.parent) ? a.parent : 'root'] ||= []).push(a);
     for (const k in byParent) byParent[k].sort((x, y) => x.start - y.start);
     const top = byParent.root || [];
     const meta = [s.running ? (s.status === 'busy' ? 'working' : s.status) : 'closed', model(s.model), `${tok(s.tokens)} tokens in context`].filter(Boolean).join(' · ');
@@ -186,11 +210,14 @@ function renderDetails() {
       <dt>Context</dt><dd>${tok(s.tokens)} tokens</dd>
       <dt>Agents</dt><dd>${s.agents.length} (${s.agents.filter(a => a.running).length} running)</dd>
       <dt>Session</dt><dd>${esc(s.id)}</dd></dl>
-      <div class="acts"><button data-open="${esc(s.id)}">Open session</button></div>`;
+      <div class="acts"><button data-open="${esc(s.id)}" data-cwd="${esc(s.cwd)}">Open session</button></div>`;
     return;
   }
   const a = s.agents.find(x => x.id === aid);
   if (!a) { el.innerHTML = '<span class="empty">Agent not found.</span>'; return; }
+  // prompt + tool calls are fetched for the selected agent only (keeps the 4s payload small)
+  const d = data.detail && data.detail.file === a.file ? data.detail : null;
+  if (a.file && !d && asked !== a.file) { asked = a.file; vscode.postMessage({ cmd: 'select', file: a.file }); }
   const parent = s.agents.find(x => x.id === a.parent);
   const c = a.claim;
   const asks = c ? asksFor(c.files) : [];
@@ -207,7 +234,12 @@ function renderDetails() {
       <button data-act="status" data-agent="${esc(a.id)}">Request status</button>
       ${a.ctl === 'pause' ? `<button data-act="" data-agent="${esc(a.id)}">Resume</button>` : `<button data-act="pause" data-agent="${esc(a.id)}">Pause</button>`}
       <button class="danger" data-act="stop" data-agent="${esc(a.id)}">Stop</button>` : ''}
-      <button data-open="${esc(s.id)}">Open session</button></div>
+      <button data-open="${esc(s.id)}" data-cwd="${esc(s.cwd)}">Open session</button>
+      ${a.file ? `<button data-transcript="${esc(a.file)}">Open transcript</button>` : ''}</div>
+    ${a.activity ? `<div class="activity">${a.activity.name === 'Thinking' ? 'Thinking…' : `Running <b>${esc(a.activity.name)}</b> ${esc(a.activity.arg)}`}</div>` : ''}
+    ${d && d.prompt ? `<details data-fold="prompt" ${state.open.prompt ? 'open' : ''}><summary>Prompt</summary><div class="prompt">${esc(d.prompt)}</div></details>` : ''}
+    ${d && d.tools.length ? `<details data-fold="tools" ${state.open.tools ? 'open' : ''}><summary>Tool calls (${d.tools.length})</summary><ul class="tools">${d.tools.map(t =>
+      `<li title="${esc(t.arg)}"><b>${esc(t.name)}</b><span>${esc(t.arg)}</span></li>`).join('')}</ul></details>` : ''}
     ${a.lastText ? `<h2>Last message</h2><div class="lastmsg">${esc(a.lastText)}</div>` : ''}
     ${c ? `<h2>Claimed files</h2><ul>${c.files.map(f => `<li>${esc(f)}</li>`).join('')}</ul>` : ''}
     ${asks.length ? `<h2>Share requests</h2><ul>${asks.map(m => `<li><b>${esc(m.from)} → ${esc(m.to)}</b> <span class="chip ${m.verdict || 'pending'}">${m.verdict || 'pending'}</span><br>${esc(m.text)}${m.reply ? `<br><i>${esc(m.reply)}</i>` : ''}</li>`).join('')}</ul>` : ''}`;
@@ -240,9 +272,12 @@ $('maps').addEventListener('click', e => {
 $('details').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
-  if (b.dataset.open) vscode.postMessage({ cmd: 'open', session: b.dataset.open });
+  if (b.dataset.transcript) vscode.postMessage({ cmd: 'transcript', file: b.dataset.transcript });
+  else if (b.dataset.open) vscode.postMessage({ cmd: 'open', session: b.dataset.open, cwd: b.dataset.cwd });
   else if ('act' in b.dataset) vscode.postMessage({ cmd: 'control', agent: b.dataset.agent, action: b.dataset.act || null });
 });
+// toggle doesn't bubble → capture phase
+$('details').addEventListener('toggle', e => { const f = e.target.dataset.fold; if (f) { state.open[f] = e.target.open; save(); } }, true);
 window.addEventListener('message', e => { data = e.data; render(); });
 vscode.postMessage('ready');
 </script>
