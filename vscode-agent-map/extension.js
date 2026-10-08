@@ -84,6 +84,34 @@ function toolLabel(t) {
 }
 
 // Prompt + every tool call of ONE agent (the selected one) — full-file read, so only done on demand
+// Transcript .jsonl → readable Markdown (prompt, replies, tool calls, folded results)
+function transcriptMarkdown(file) {
+  const fence = (s, lang = '') => { const f = '`'.repeat(Math.max(3, ...(String(s).match(/`+/g) || []).map(x => x.length + 1))); return `${f}${lang}\n${s}\n${f}`; };
+  const clip = s => s.length > 4000 ? s.slice(0, 4000) + `\n… (${s.length - 4000} more chars)` : s;
+  const text = c => typeof c === 'string' ? c : Array.isArray(c) ? c.map(x => x.type === 'text' ? x.text : '').join('\n') : JSON.stringify(c);
+  const out = [`# Agent transcript\n\n\`${file}\``];
+  let first = true;
+  for (const l of fs.readFileSync(file, 'utf8').split('\n')) {
+    let o; try { o = JSON.parse(l); } catch { continue; }
+    const c = o.message && o.message.content;
+    const when = o.timestamp ? ` · ${new Date(o.timestamp).toLocaleTimeString()}` : '';
+    if (o.type === 'user' && first) { first = false; out.push(`## Prompt${when}\n\n${text(c)}`); continue; }
+    if (!Array.isArray(c)) { if (o.type === 'user' && c) out.push(`## User${when}\n\n${c}`); continue; }
+    for (const b of c) {
+      if (b.type === 'text' && b.text.trim()) out.push(`### ${o.type === 'assistant' ? 'Assistant' : 'User'}${when}\n\n${b.text}`);
+      else if (b.type === 'tool_use') {
+        const i = b.input || {}, lab = toolLabel(b);
+        const body = b.name === 'Bash' || b.name === 'PowerShell' ? fence(i.command || '', b.name === 'Bash' ? 'bash' : 'powershell') : fence(JSON.stringify(i, null, 2), 'json');
+        out.push(`**▶ ${b.name}** ${lab.arg && lab.arg !== i.command ? lab.arg : ''}${when}\n\n${body}`);
+      } else if (b.type === 'tool_result') {
+        const r = clip(text(b.content));
+        out.push(`<details><summary>${b.is_error ? '✖ error' : 'result'} (${r.split('\n').length} lines)</summary>\n\n${fence(r)}\n\n</details>`);
+      }
+    }
+  }
+  return out.join('\n\n');
+}
+
 function agentDetail(file) {
   const st = stat(file);
   if (!st) return null;
@@ -300,14 +328,18 @@ function activate(context) {
       if (m.cmd === 'open') return openSession(vscode, m.session, m.cwd);
       if (m.cmd === 'control') { setControl(m.agent, m.action); tick(); }
       if (m.cmd === 'select') { selFile = ours(m.file) ? m.file : null; return tick(); }
-      if (m.cmd === 'transcript' && ours(m.file))
-        vscode.window.showTextDocument(vscode.Uri.file(m.file), { preview: true, viewColumn: vscode.ViewColumn.Beside });
+      // ponytail: snapshot at click time in OS temp; click again to refresh
+      if (m.cmd === 'transcript' && ours(m.file)) {
+        const md = path.join(os.tmpdir(), `agent-${path.basename(m.file, '.jsonl')}.md`);
+        fs.writeFileSync(md, transcriptMarkdown(m.file));
+        vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(md));
+      }
     });
     panel.onDidDispose(() => { panel = null; });
   }));
 }
 
-module.exports = { activate, deactivate() {}, collect, agentDetail };
+module.exports = { activate, deactivate() {}, collect, agentDetail, transcriptMarkdown };
 
 if (require.main === module) {
   const d = collect();

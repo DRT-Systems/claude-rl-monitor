@@ -9,3 +9,4 @@ Thumbs.db
 .rl_snooze
 .rl_dismiss
 rl-handoff.json
+*.vsix
