@@ -341,13 +341,18 @@ function renderAsks() {
     <tr><td>${ago(Date.parse(m.at))}</td><td>${esc(m.from)} → ${esc(m.to)}</td><td class="file">${esc(m.file)}</td>
     <td>${esc(m.text)}</td><td><span class="chip ${m.verdict || 'pending'}">${m.verdict || 'pending'}</span> ${esc(m.reply || '')}</td></tr>`).join('')}</table></div>`
     : '<p class="empty">No agent asked to share a claimed file in the last 24 hours.</p>');
-  const u = data.unlinked || [];
-  const held = u.filter(c => !c.released_at).map(c => c.id);
-  $('unlinkedWrap').innerHTML = u.length ? `<h2>Claims without a matching agent <span class="n">${u.length}</span>
-    ${held.length > 1 ? `<button class="btn danger" data-release="${held.join(',')}">${armed === held.join(',') ? 'Click again to release all' : `Release all ${held.length} held`}</button>` : ''}</h2>
-    <div class="tablewrap"><table><tr><th>Session</th><th>Agent</th><th>Task</th><th>Files</th><th>State</th></tr>${u.map(c => `
+  // only held orphans are actionable; released ones lock nothing and just get a count
+  const all = data.unlinked || [];
+  const u = all.filter(c => !c.released_at);
+  const gone = all.length - u.length;
+  const held = u.map(c => c.id);
+  $('unlinkedWrap').innerHTML = `<h2>Held claims without a matching agent <span class="n">${u.length}</span>
+    ${held.length > 1 ? `<button class="btn danger" data-release="${held.join(',')}">${armed === held.join(',') ? 'Click again to release all' : `Release all ${held.length}`}</button>` : ''}</h2>`
+    + (u.length ? `<div class="tablewrap"><table><tr><th>Session</th><th>Agent</th><th>Task</th><th>Files</th><th>Held since</th><th></th></tr>${u.map(c => `
     <tr><td>${esc(c.session)}</td><td>${esc(c.agent)}</td><td>${esc(c.task)}</td><td class="file">${c.files.map(esc).join('<br>')}</td>
-    <td>${c.released_at ? 'released' : `held <button class="btn danger" data-release="${esc(c.id)}" title="Free these files for other agents">${armed === c.id ? 'Click again' : 'Release'}</button>`}</td></tr>`).join('')}</table></div>` : '';
+    <td>${ago(Date.parse(c.claimed_at))}</td>
+    <td><button class="btn danger" data-release="${esc(c.id)}" title="Free these files for other agents">${armed === c.id ? 'Click again' : 'Release'}</button></td></tr>`).join('')}</table></div>`
+    : `<p class="empty">No orphaned locks.${gone ? ` ${gone} claim${gone === 1 ? ' was' : 's were'} already released in the last 24 hours.` : ''}</p>`);
 }
 
 function render() { if (!data) return; renderPulse(); renderMaps(); renderDetails(); renderAsks(); }
