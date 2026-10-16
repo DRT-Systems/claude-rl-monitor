@@ -65,6 +65,11 @@
             "type": "command",
             "command": "node \"%USERPROFILE%/.claude/hooks/rl-session-start.js\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-session-name.js\"",
+            "timeout": 5
           }
         ]
       }
