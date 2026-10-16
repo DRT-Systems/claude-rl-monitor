@@ -2,8 +2,9 @@
 // SessionStart hook — gives every session a short first name ("Ilke", "Raf", …)
 // so you can tell sessions apart in the Agent Map and address them by name.
 //
-// - Sets the name through hookSpecificOutput.sessionTitle (same effect as /rename,
-//   so the name is also the session's SendMessage address).
+// - Sets the name through hookSpecificOutput.sessionTitle. That is only the title: the
+//   SendMessage address stays Claude Code's derived name (sessions/<pid>.json), which a
+//   hook cannot change. So `node rl-session-name.js who <Name>` resolves name → address.
 // - Never overwrites a title that already exists (resumed or /rename'd session).
 // - Picks a name no other live session holds (live = ~/.claude/sessions/<pid>.json).
 // - Tells the session its own name via additionalContext, also after /compact.
@@ -33,21 +34,30 @@ const readReg = () => { try { return JSON.parse(fs.readFileSync(REG_FILE, 'utf8'
 // Entries under a minute old count too (sibling session starting right now, no pid file yet).
 function liveNames(selfId, reg, now = Date.now()) {
   const used = new Set(), live = new Set();
-  let files = [];
-  try { files = fs.readdirSync(LIVE_DIR); } catch {}
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue;
-    try {
-      const s = JSON.parse(fs.readFileSync(path.join(LIVE_DIR, f), 'utf8'));
-      if (s.sessionId === selfId) continue;
-      live.add(s.sessionId);
-      if (s.name) used.add(String(s.name).toLowerCase());
-    } catch {}
+  for (const s of liveFiles()) {
+    if (s.sessionId === selfId) continue;
+    live.add(s.sessionId);
+    if (s.name) used.add(String(s.name).toLowerCase());
   }
   for (const [id, e] of Object.entries(reg)) {
     if (id !== selfId && (live.has(id) || now - e.at < 60 * 1000)) used.add(e.name.toLowerCase());
   }
   return used;
+}
+
+function liveFiles() {
+  let files = [];
+  try { files = fs.readdirSync(LIVE_DIR); } catch {}
+  return files.filter(f => f.endsWith('.json')).map(f => {
+    try { return JSON.parse(fs.readFileSync(path.join(LIVE_DIR, f), 'utf8')); } catch { return null; }
+  }).filter(Boolean);
+}
+
+// first name → SendMessage address of the live session holding it (null if none)
+function who(name, reg = readReg(), live = liveFiles()) {
+  const ids = Object.keys(reg).filter(id => reg[id].name.toLowerCase() === String(name).toLowerCase());
+  const s = live.find(s => ids.includes(s.sessionId));
+  return s ? s.name : null;
 }
 
 // ponytail: read-modify-write without a lock; two hooks in the same millisecond can still clash
@@ -64,7 +74,7 @@ function pickName(used) {
   for (let i = 2; ; i++) for (const n of NAMES) if (!used.has(`${n}${i}`.toLowerCase())) return `${n}${i}`;
 }
 
-function decide(input, used, reg = {}) {
+function decide(input, used, reg = {}, address = null) {
   // our own record wins on resume, in case Claude Code does not pass session_title back
   const existing = (input.session_title || (reg[input.session_id] && reg[input.session_id].name) || '').trim();
   const titled = ['startup', 'resume', 'fork'].includes(input.source || 'startup');
@@ -72,7 +82,9 @@ function decide(input, used, reg = {}) {
   const name = existing || pickName(used);
   const out = {
     hookEventName: 'SessionStart',
-    additionalContext: `Your session name is "${name}". The user and other Claude sessions address you by this name (it is your SendMessage address). Answer to it.`,
+    additionalContext: `Your session name is "${name}". The user and other Claude sessions call you by this name; answer to it.`
+      + (address ? ` Your SendMessage address is "${address}".` : '')
+      + ` SendMessage addresses are not these first names: to message a session by first name, first run \`node "${__filename}" who <Name>\` and send to the address it prints.`,
   };
   if (!existing) out.sessionTitle = name;
   return { hookSpecificOutput: out };
@@ -93,9 +105,20 @@ if (process.argv[2] === '--test') {
   const reg = { b: { name: 'Yana', at: Date.now() }, c: { name: 'Bram', at: 0 } };
   const used = liveNames('a', reg);
   assert.ok(used.has('yana') && !used.has('bram'));
+  const live = [{ sessionId: 'b', name: 'repo-c7' }];
+  assert.strictEqual(who('yana', reg, live), 'repo-c7');                    // case-insensitive name → address
+  assert.strictEqual(who('Bram', reg, live), null);                         // not live → null
+  assert.match(decide({ source: 'startup' }, new Set(), {}, 'repo-0a').hookSpecificOutput.additionalContext, /"repo-0a"/);
   console.log('ok');
   process.exit(0);
 }
+
+if (process.argv[2] === 'who') {
+  const a = who(process.argv[3] || '');
+  console.log(a || `No live session named "${process.argv[3]}".`);
+  process.exit(a ? 0 : 1);
+}
+
 
 let raw = '';
 process.stdin.on('data', c => { raw += c; });
@@ -103,7 +126,8 @@ process.stdin.on('end', () => {
   let input = {};
   try { input = JSON.parse(raw); } catch {}
   const reg = readReg();
-  const out = decide(input, liveNames(input.session_id, reg), reg);
+  const self = liveFiles().find(s => s.sessionId === input.session_id); // pid file may not exist yet
+  const out = decide(input, liveNames(input.session_id, reg), reg, self && self.name);
   if (out) {
     const name = out.hookSpecificOutput.additionalContext.match(/"([^"]+)"/)[1];
     if (input.session_id) remember(reg, input.session_id, name);
