@@ -21,6 +21,7 @@ const CLAIMS   = path.join(CLAUDE, 'rl-claims', 'claims.json');
 const CONTROL  = path.join(CLAUDE, 'agent-map', 'control.json'); // read by hooks/agent-control.js
 const DAY_MS   = 24 * 3600 * 1000;
 const SESSIONS = path.join(CLAUDE, 'sessions');
+const NAMES    = path.join(CLAUDE, 'rl-session-names.json'); // first names from hooks/rl-session-name.js
 const SETTLE_MS = 15 * 1000; // a text-only last reply must sit this long before we call the agent finished
 // ponytail: no transcript write for 10 min → treat as stopped (orphaned children get no completion notice); raise if you run >10 min single tool calls
 const STALE_MS = 10 * 60 * 1000;
@@ -181,6 +182,9 @@ function liveSessions() {
     try { process.kill(s.pid, 0); } catch (e) { if (e.code !== 'EPERM') continue; } // EPERM = exists, not ours
     live.set(s.sessionId, { status: s.status || 'open', name: s.name || null });
   }
+  // prefer the first name our hook handed out over Claude Code's derived folder name
+  const names = readJson(NAMES) || {};
+  for (const [id, p] of live) if (names[id]) p.name = names[id].name;
   return live;
 }
 

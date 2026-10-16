@@ -16,6 +16,10 @@ const path = require('path');
 
 const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || path.join(require('os').homedir(), '.claude');
 const LIVE_DIR   = path.join(CLAUDE_DIR, 'sessions');
+// sessionTitle only sets the title (custom-title); Claude Code keeps its derived name in
+// sessions/<pid>.json, so we track handed-out names here (also read by the Agent Map).
+const REG_FILE   = path.join(CLAUDE_DIR, 'rl-session-names.json');
+const WEEK_MS    = 7 * 24 * 3600 * 1000;
 
 const NAMES = [
   'Ilke', 'Raf', 'Joost', 'Lien', 'Bram', 'Fien', 'Jens', 'Lotte', 'Stijn', 'Elke',
@@ -23,18 +27,34 @@ const NAMES = [
   'Lars', 'Marieke', 'Ruben', 'Saar', 'Tine', 'Wout', 'Yana', 'Arne', 'Britt', 'Seppe',
 ];
 
-function liveNames(selfId) {
-  const used = new Set();
+const readReg = () => { try { return JSON.parse(fs.readFileSync(REG_FILE, 'utf8')) || {}; } catch { return {}; } };
+
+// names held by other live sessions: their derived name + the first name we gave them.
+// Entries under a minute old count too (sibling session starting right now, no pid file yet).
+function liveNames(selfId, reg, now = Date.now()) {
+  const used = new Set(), live = new Set();
   let files = [];
   try { files = fs.readdirSync(LIVE_DIR); } catch {}
   for (const f of files) {
     if (!f.endsWith('.json')) continue;
     try {
       const s = JSON.parse(fs.readFileSync(path.join(LIVE_DIR, f), 'utf8'));
-      if (s.sessionId !== selfId && s.name) used.add(String(s.name).toLowerCase());
+      if (s.sessionId === selfId) continue;
+      live.add(s.sessionId);
+      if (s.name) used.add(String(s.name).toLowerCase());
     } catch {}
   }
+  for (const [id, e] of Object.entries(reg)) {
+    if (id !== selfId && (live.has(id) || now - e.at < 60 * 1000)) used.add(e.name.toLowerCase());
+  }
   return used;
+}
+
+// ponytail: read-modify-write without a lock; two hooks in the same millisecond can still clash
+function remember(reg, id, name, now = Date.now()) {
+  for (const k of Object.keys(reg)) if (now - reg[k].at > WEEK_MS) delete reg[k];
+  reg[id] = { name, at: now };
+  try { fs.writeFileSync(REG_FILE + '.tmp', JSON.stringify(reg)); fs.renameSync(REG_FILE + '.tmp', REG_FILE); } catch {}
 }
 
 // ponytail: two sessions starting in the same instant can pick the same name; add a lock file if that ever bites
@@ -44,8 +64,9 @@ function pickName(used) {
   for (let i = 2; ; i++) for (const n of NAMES) if (!used.has(`${n}${i}`.toLowerCase())) return `${n}${i}`;
 }
 
-function decide(input, used) {
-  const existing = (input.session_title || '').trim();
+function decide(input, used, reg = {}) {
+  // our own record wins on resume, in case Claude Code does not pass session_title back
+  const existing = (input.session_title || (reg[input.session_id] && reg[input.session_id].name) || '').trim();
   const titled = ['startup', 'resume', 'fork'].includes(input.source || 'startup');
   if (!existing && !titled) return null; // /clear or /compact without a known name: nothing to say
   const name = existing || pickName(used);
@@ -66,6 +87,12 @@ if (process.argv[2] === '--test') {
   assert.strictEqual(kept.hookSpecificOutput.sessionTitle, undefined);      // never overwrite
   assert.match(kept.hookSpecificOutput.additionalContext, /xwiki-sync/);
   assert.strictEqual(decide({ source: 'compact' }, new Set()), null);
+  const known = decide({ source: 'compact', session_id: 'a' }, new Set(), { a: { name: 'Raf', at: 0 } });
+  assert.match(known.hookSpecificOutput.additionalContext, /"Raf"/);       // registry remembers across /compact
+  // a sibling's first name blocks reuse while fresh, even before its pid file exists
+  const reg = { b: { name: 'Yana', at: Date.now() }, c: { name: 'Bram', at: 0 } };
+  const used = liveNames('a', reg);
+  assert.ok(used.has('yana') && !used.has('bram'));
   console.log('ok');
   process.exit(0);
 }
@@ -75,7 +102,12 @@ process.stdin.on('data', c => { raw += c; });
 process.stdin.on('end', () => {
   let input = {};
   try { input = JSON.parse(raw); } catch {}
-  const out = decide(input, liveNames(input.session_id));
-  if (out) process.stdout.write(JSON.stringify(out));
+  const reg = readReg();
+  const out = decide(input, liveNames(input.session_id, reg), reg);
+  if (out) {
+    const name = out.hookSpecificOutput.additionalContext.match(/"([^"]+)"/)[1];
+    if (input.session_id) remember(reg, input.session_id, name);
+    process.stdout.write(JSON.stringify(out));
+  }
   process.exit(0);
 });
