@@ -132,7 +132,8 @@ process.stdin.on('end', () => {
   const ps = sn.pct, pf = fb.pct;
 
   if (isDispatch) {
-    const subagentModel = dispatchModel(input?.tool_input);
+    // no control characters (newlines, ESC sequences): the value lands in the stderr block reason
+    const subagentModel = dispatchModel(input?.tool_input).replace(/[\x00-\x1f\x7f]+/g, ' ');
     const isSonnet = subagentModel.includes('sonnet');
     const isFable  = subagentModel.includes('fable');
 
@@ -161,7 +162,7 @@ process.stdin.on('end', () => {
     if (isFable && pf >= T_FABLE) {
       return block(
         `7-day Fable at ${pf}% (threshold ${T_FABLE}%) and this dispatch runs on ${subagentModel}. ` +
-        `Resets in ${fmtReset(fb.reset)}. Pass model: "opus" on the Agent/Task call (via budget-orchestrator: a MODEL: opus line), pick another role, or defer.`,
+        `Resets in ${fmtReset(fb.reset)}. Pass model: "opus" on the Agent/Task call, pick another role, or defer.`,
         raw
       );
     }

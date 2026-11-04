@@ -297,7 +297,7 @@ function renderDetails() {
   const s = data.sessions.find(x => x.id === sid);
   if (!s) { el.innerHTML = '<div class="placeholder">That session is older than 24 hours.</div>'; return; }
   if (aid === 'root') {
-    el.innerHTML = `<div class="dhead"><div class="sub">${pill(sessStatus(s))}<span>${s.running ? 'session' : 'last activity ' + ago(s.mtime)}</span>${s.name ? `<b title="Address this session by this name">${esc(s.name)}</b>` : ''}</div><h3>${esc(s.title)}</h3></div>
+    el.innerHTML = `<div class="dhead"><div class="sub">${pill(sessStatus(s))}<span>${s.running ? 'session' : 'last activity ' + ago(s.mtime)}</span>${s.name ? ` · <b title="Address this session by this name">${esc(s.name)}</b>` : ''}</div><h3>${esc(s.title)}</h3></div>
       <dl class="stats">${statTile('Model', esc(model(s.model) || '—'))}${statTile('Context', tok(s.tokens) + ' tokens')}
         ${statTile('Agents', `${s.agents.length} · ${s.agents.filter(a => a.running).length} running`)}${statTile('Project', esc(s.project))}</dl>
       <div class="acts"><button class="btn primary" data-open="${esc(s.id)}" data-cwd="${esc(s.cwd)}">Open session</button></div>

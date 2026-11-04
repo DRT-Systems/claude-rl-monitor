@@ -63,7 +63,7 @@ process.stdin.on('end', () => {
   // usage cache the VS Code extension writes (limits[], kind 'weekly_scoped').
   let fablePct = null;
   try {
-    const cache = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, '.rl_cache.json'), 'utf8'));
+    const cache = JSON.parse(fs.readFileSync(path.join(HOME, '.claude', '.rl_cache.json'), 'utf8'));
     const l = (cache?.data?.limits || []).find(x =>
       x.kind === 'weekly_scoped' && x.scope?.model?.display_name?.toLowerCase() === 'fable');
     if (l && Date.now() - cache.ts < 15 * 60 * 1000) fablePct = l.percent ?? null;

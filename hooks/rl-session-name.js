@@ -60,30 +60,47 @@ function who(name, reg = readReg(), live = liveFiles()) {
   return s ? s.name : null;
 }
 
-// ponytail: read-modify-write without a lock; two hooks in the same millisecond can still clash
-function remember(reg, id, name, now = Date.now()) {
-  for (const k of Object.keys(reg)) if (now - reg[k].at > WEEK_MS) delete reg[k];
+// live sessions keep their entry however old, so a week-long session's name is not handed out again
+function remember(reg, id, name, liveIds = new Set(), now = Date.now()) {
+  for (const k of Object.keys(reg)) if (now - reg[k].at > WEEK_MS && !liveIds.has(k)) delete reg[k];
   reg[id] = { name, at: now };
   try { fs.writeFileSync(REG_FILE + '.tmp', JSON.stringify(reg)); fs.renameSync(REG_FILE + '.tmp', REG_FILE); } catch {}
 }
 
-// ponytail: two sessions starting in the same instant can pick the same name; add a lock file if that ever bites
+// Serializes read → pick → write, so sessions starting at once get different names.
+// A holder needs milliseconds, so a lock older than 60 s is left by a crashed hook and gets cleared.
+// After 2 s of waiting we run unlocked rather than stall startup.
+function withLock(fn) {
+  const lock = REG_FILE + '.lock', until = Date.now() + 2000;
+  for (;;) {
+    try { fs.closeSync(fs.openSync(lock, 'wx')); break; } catch (e) {
+      if (e.code === 'ENOENT') return fn(); // no config dir: nothing to lock, and the registry write fails anyway
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 60000) fs.unlinkSync(lock); } catch {}
+      if (Date.now() > until) return fn();
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try { return fn(); } finally { try { fs.unlinkSync(lock); } catch {} }
+}
+
 function pickName(used) {
   const free = NAMES.filter(n => !used.has(n.toLowerCase()));
   if (free.length) return free[Math.floor(Math.random() * free.length)];
   for (let i = 2; ; i++) for (const n of NAMES) if (!used.has(`${n}${i}`.toLowerCase())) return `${n}${i}`;
 }
 
+// our own record wins on resume, in case Claude Code does not pass session_title back
+const known = (input, reg) => (input.session_title || (reg[input.session_id] && reg[input.session_id].name) || '').trim();
+
 function decide(input, used, reg = {}, address = null) {
-  // our own record wins on resume, in case Claude Code does not pass session_title back
-  const existing = (input.session_title || (reg[input.session_id] && reg[input.session_id].name) || '').trim();
+  const existing = known(input, reg);
   const titled = ['startup', 'resume', 'fork'].includes(input.source || 'startup');
   if (!existing && !titled) return null; // /clear or /compact without a known name: nothing to say
   const name = existing || pickName(used);
   const out = {
     hookEventName: 'SessionStart',
-    additionalContext: `Your session name is "${name}". The user and other Claude sessions call you by this name; answer to it.`
-      + (address ? ` Your SendMessage address is "${address}".` : '')
+    additionalContext: `Your session name is ${JSON.stringify(name)}. The user and other Claude sessions call you by this name; answer to it.`
+      + (address ? ` Your SendMessage address is ${JSON.stringify(address)}.` : '')
       + ` SendMessage addresses are not these first names: to message a session by first name, first run \`node "${__filename}" who <Name>\` and send to the address it prints.`,
   };
   if (!existing) out.sessionTitle = name;
@@ -109,6 +126,12 @@ if (process.argv[2] === '--test') {
   assert.strictEqual(who('yana', reg, live), 'repo-c7');                    // case-insensitive name → address
   assert.strictEqual(who('Bram', reg, live), null);                         // not live → null
   assert.match(decide({ source: 'startup' }, new Set(), {}, 'repo-0a').hookSpecificOutput.additionalContext, /"repo-0a"/);
+  assert.match(decide({ source: 'resume', session_title: 'say "hi"' }, new Set()).hookSpecificOutput.additionalContext, /"say \\"hi\\""/);
+  const old = { a: { name: 'Raf', at: 0 }, b: { name: 'Lien', at: 0 } };
+  const keepLive = Object.assign({}, old), realWrite = fs.writeFileSync;
+  fs.writeFileSync = () => {}; // keep the self-check off the real registry
+  try { remember(keepLive, 'c', 'Bram', new Set(['a'])); } finally { fs.writeFileSync = realWrite; }
+  assert.deepStrictEqual(Object.keys(keepLive).sort(), ['a', 'c']);         // old but live stays, old dead goes
   console.log('ok');
   process.exit(0);
 }
@@ -125,13 +148,14 @@ process.stdin.on('data', c => { raw += c; });
 process.stdin.on('end', () => {
   let input = {};
   try { input = JSON.parse(raw); } catch {}
-  const reg = readReg();
-  const self = liveFiles().find(s => s.sessionId === input.session_id); // pid file may not exist yet
-  const out = decide(input, liveNames(input.session_id, reg), reg, self && self.name);
-  if (out) {
-    const name = out.hookSpecificOutput.additionalContext.match(/"([^"]+)"/)[1];
-    if (input.session_id) remember(reg, input.session_id, name);
-    process.stdout.write(JSON.stringify(out));
-  }
+  const out = withLock(() => {
+    const reg = readReg(), live = liveFiles();
+    const self = live.find(s => s.sessionId === input.session_id); // pid file may not exist yet
+    const out = decide(input, liveNames(input.session_id, reg), reg, self && self.name);
+    const name = out && (out.hookSpecificOutput.sessionTitle || known(input, reg));
+    if (name && input.session_id) remember(reg, input.session_id, name, new Set(live.map(s => s.sessionId)));
+    return out;
+  });
+  if (out) process.stdout.write(JSON.stringify(out));
   process.exit(0);
 });

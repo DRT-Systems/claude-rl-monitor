@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0] — 2026-11-04 (release v1.3.1)
+## [0.6.1] — 2026-11-04
+
+### Fixed
+
+- **`hooks/rl-session-name.js`** — registry updates run under a lock file, so sessions starting at once get different names. A live session keeps its name entry past the one-week expiry. The name is taken from the hook's own result instead of being parsed back out of the message text, and names are JSON-quoted in the message.
+- **`hooks/rl-statusline.js`** — reads the usage cache from `~/.claude`, where the extension writes it, also when `CLAUDE_CONFIG_DIR` is set.
+- **`hooks/rl-gate.js`** — control characters (newlines, escape sequences) are stripped from the model name before it goes into a block message. The Fable block hint no longer mentions the orchestrator's `MODEL:` line.
+- **Agent map** — a ` · ` separator between the status and the session name in the details header.
+
+## [0.6.0] — 2026-11-04
 
 ### Added
 - **`hooks/rl-session-name.js`** — auto-names each Claude session with a first name, unique across live sessions; `who <Name>` resolves a name to its SendMessage address. Names are shown in the agent map.
 - **`hooks/rl-statusline.js`** — shows `Fable:NN%`, read from the usage cache (`limits[]`, `kind: "weekly_scoped"`); hidden when the cache is older than 15 minutes.
 
 ### Fixed
-- **`hooks/rl-gate.js`** — only plain agent names (`[A-Za-z0-9_-]`) are looked up in the agents directory, so a crafted `subagent_type` cannot steer the file read elsewhere. The agents directory follows `CLAUDE_CONFIG_DIR`. The Fable block message names the real field (`model: "opus"`).
+- **`hooks/rl-gate.js`** — only plain agent names (`^[A-Za-z0-9_-]+$`) are looked up in the agents directory, so a crafted `subagent_type` cannot steer the file read elsewhere. The agents directory follows `CLAUDE_CONFIG_DIR`. The Fable block message names the real field (`model: "opus"`).
 
 ## [0.5.0] — 2026-11-04
 

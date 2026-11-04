@@ -1,5 +1,5 @@
 {
-  "_comment": "Snippet to merge into ~/.claude/settings.json. Replace any existing 'statusLine' entry. Add the UserPromptSubmit and StopFailure blocks under 'hooks'. Add the SessionStart block alongside any existing SessionStart hooks.",
+  "_comment": "Snippet to merge into ~/.claude/settings.json. Replace any existing 'statusLine' entry. Add the UserPromptSubmit and StopFailure blocks under 'hooks'. Add the SessionStart block alongside any existing SessionStart hooks. Both SessionStart hooks can run side by side: Claude Code joins the additionalContext of every hook, and only rl-session-name.js sets sessionTitle.",
 
   "statusLine": {
     "type": "command",
