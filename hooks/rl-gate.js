@@ -35,7 +35,9 @@ const T_5H     = parseInt(process.env.CLAUDE_RL_THRESHOLD_5H     || '85', 10);
 const T_7D     = parseInt(process.env.CLAUDE_RL_THRESHOLD_7D     || '85', 10);
 const T_SONNET = parseInt(process.env.CLAUDE_RL_THRESHOLD_SONNET || '85', 10);
 const T_FABLE  = parseInt(process.env.CLAUDE_RL_THRESHOLD_FABLE  || '85', 10);
-const AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
+// Agent definitions live in Claude Code's config root, which CLAUDE_CONFIG_DIR
+// overrides. The usage cache stays in ~/.claude: the extension always writes it there.
+const AGENTS_DIR = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'agents');
 
 const SUBAGENT_WORK_TOOLS = new Set(['Bash', 'Edit', 'Write', 'MultiEdit']);
 const DISPATCH_TOOLS      = new Set(['Task', 'Agent']);
@@ -94,6 +96,8 @@ function scoped(cache, model, legacy) {
 function dispatchModel(toolInput) {
   if (toolInput?.model) return String(toolInput.model).toLowerCase();
   const type = String(toolInput?.subagent_type || '');
+  // Only plain agent names map to a file; anything else (paths, plugin:agent) skips the read.
+  if (!/^[A-Za-z0-9_-]+$/.test(type)) return type.toLowerCase();
   try {
     const def = fs.readFileSync(path.join(AGENTS_DIR, `${type}.md`), 'utf8');
     const m = def.match(/^model:\s*(\S+)/m);
@@ -157,7 +161,7 @@ process.stdin.on('end', () => {
     if (isFable && pf >= T_FABLE) {
       return block(
         `7-day Fable at ${pf}% (threshold ${T_FABLE}%) and this dispatch runs on ${subagentModel}. ` +
-        `Resets in ${fmtReset(fb.reset)}. Pass MODEL: opus (or pick another role) or defer.`,
+        `Resets in ${fmtReset(fb.reset)}. Pass model: "opus" on the Agent/Task call (via budget-orchestrator: a MODEL: opus line), pick another role, or defer.`,
         raw
       );
     }
