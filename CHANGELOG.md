@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-04
+
+### Added — Fable weekly cap
+- **`hooks/rl-budget.js`** — reports `fable` in `thresholds` / `current` / `headroom` / `resets_in`, read from the usage endpoint's `limits[]` (`kind: "weekly_scoped"`, `scope.model.display_name`). New env var `CLAUDE_RL_THRESHOLD_FABLE` (default 85).
+- **`hooks/rl-gate.js`** — blocks `Task`/`Agent` dispatches that run on Fable once the Fable cap reaches its threshold.
+- **`skills/budget-check/SKILL.md`** — per-model headroom rule covers Fable (fall back to `model: "opus"`).
+- VS Code extension 1.3.0 — see `vscode-extension/CHANGELOG.md`.
+
+### Fixed
+- Sonnet headroom was always 0% used: the endpoint now returns `seven_day_sonnet: null`. `rl-budget.js` and `rl-gate.js` read Sonnet from `limits[]`, falling back to the legacy bucket.
+- `rl-gate.js` resolved a dispatch's model by substring-matching `subagent_type`, so roles like `worker` (pinned to Sonnet) never matched. It now uses the dispatch `model` param, else the `model:` line of `~/.claude/agents/<type>.md`.
+
 ## [0.4.1] — 2026-05-03
 
 ### Documentation
