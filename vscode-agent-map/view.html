@@ -279,7 +279,7 @@ function renderMaps() {
     return `<div class="session ${s.running ? '' : 'dim'}">
       <div class="row shead ${state.sel === key ? 'sel' : ''}" data-key="${esc(key)}">
         ${caret(key, shut, top.length)}${pill(ss)}
-        <span class="name">${esc(s.title)}<small>${esc(s.cwd ? s.cwd.split(/[\\/]/).filter(Boolean).pop() : s.project)}</small></span>
+        <span class="name">${s.name ? `${esc(s.name)} · ` : ''}${esc(s.title)}<small>${esc(s.cwd ? s.cwd.split(/[\\/]/).filter(Boolean).pop() : s.project)}</small></span>
         <span class="nums">${shut && top.length ? hiddenChip(countAll('root', byParent)) : ''}
           <span>${s.agents.length} agent${s.agents.length === 1 ? '' : 's'}${run ? ` · ${run} live` : ''}</span>
           <span>${esc(model(s.model))}</span><span class="t">${tok(s.tokens)}</span><span class="${ss[0]}">${meter(s.tokens)}</span></span>
@@ -297,7 +297,7 @@ function renderDetails() {
   const s = data.sessions.find(x => x.id === sid);
   if (!s) { el.innerHTML = '<div class="placeholder">That session is older than 24 hours.</div>'; return; }
   if (aid === 'root') {
-    el.innerHTML = `<div class="dhead"><div class="sub">${pill(sessStatus(s))}<span>${s.running ? 'session' : 'last activity ' + ago(s.mtime)}</span></div><h3>${esc(s.title)}</h3></div>
+    el.innerHTML = `<div class="dhead"><div class="sub">${pill(sessStatus(s))}<span>${s.running ? 'session' : 'last activity ' + ago(s.mtime)}</span>${s.name ? `<b title="Address this session by this name">${esc(s.name)}</b>` : ''}</div><h3>${esc(s.title)}</h3></div>
       <dl class="stats">${statTile('Model', esc(model(s.model) || '—'))}${statTile('Context', tok(s.tokens) + ' tokens')}
         ${statTile('Agents', `${s.agents.length} · ${s.agents.filter(a => a.running).length} running`)}${statTile('Project', esc(s.project))}</dl>
       <div class="acts"><button class="btn primary" data-open="${esc(s.id)}" data-cwd="${esc(s.cwd)}">Open session</button></div>
