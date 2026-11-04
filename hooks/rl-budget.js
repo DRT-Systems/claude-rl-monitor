@@ -6,18 +6,18 @@
 // Output shape:
 //   {
 //     "available": true|false,
-//     "thresholds": { "five_hour": 85, "seven_day": 85, "sonnet": 85 },
-//     "current":    { "five_hour": NN, "seven_day": NN, "sonnet": NN },
-//     "headroom":   { "five_hour": NN, "seven_day": NN, "sonnet": NN },
+//     "thresholds": { "five_hour": 85, "seven_day": 85, "sonnet": 85, "fable": 85 },
+//     "current":    { "five_hour": NN, "seven_day": NN, "sonnet": NN, "fable": NN },
+//     "headroom":   { "five_hour": NN, "seven_day": NN, "sonnet": NN, "fable": NN },
 //     "max_subagents": N,           // rough cap based on 5% per agent
-//     "resets_in":  { "five_hour": "2h30m", "seven_day": "5d12h", "sonnet": "5d12h" },
+//     "resets_in":  { "five_hour": "2h30m", "seven_day": "5d12h", "sonnet": "5d12h", "fable": "5d12h" },
 //     "cache_age_minutes": N,
 //     "stale": false,
 //     "reasoning": "..."
 //   }
 //
 // Override env vars:
-//   CLAUDE_RL_THRESHOLD_5H, CLAUDE_RL_THRESHOLD_7D, CLAUDE_RL_THRESHOLD_SONNET
+//   CLAUDE_RL_THRESHOLD_5H, CLAUDE_RL_THRESHOLD_7D, CLAUDE_RL_THRESHOLD_SONNET, CLAUDE_RL_THRESHOLD_FABLE
 //   CLAUDE_RL_PER_AGENT_5H_PCT      (default 5)
 
 'use strict';
@@ -30,6 +30,7 @@ const CACHE_FILE = path.join(os.homedir(), '.claude', '.rl_cache.json');
 const T_5H     = parseInt(process.env.CLAUDE_RL_THRESHOLD_5H     || '85', 10);
 const T_7D     = parseInt(process.env.CLAUDE_RL_THRESHOLD_7D     || '85', 10);
 const T_SONNET = parseInt(process.env.CLAUDE_RL_THRESHOLD_SONNET || '85', 10);
+const T_FABLE  = parseInt(process.env.CLAUDE_RL_THRESHOLD_FABLE  || '85', 10);
 const PER_AGENT_PCT = parseInt(process.env.CLAUDE_RL_PER_AGENT_5H_PCT || '5', 10);
 
 function fmtReset(resetVal) {
@@ -49,7 +50,7 @@ let cacheObj;
 try { cacheObj = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8')); } catch (e) {
   process.stdout.write(JSON.stringify({
     available: true,             // fail-open: no cache means no veto
-    thresholds: { five_hour: T_5H, seven_day: T_7D, sonnet: T_SONNET },
+    thresholds: { five_hour: T_5H, seven_day: T_7D, sonnet: T_SONNET, fable: T_FABLE },
     current: null,
     cache_age_minutes: null,
     stale: true,
@@ -62,13 +63,25 @@ const data = cacheObj.data || {};
 const ageMin = Math.floor((Date.now() - cacheObj.ts) / 60000);
 const stale = ageMin > 15;
 
+// Per-model weekly caps now arrive in limits[] (kind 'weekly_scoped'); the old
+// seven_day_<model> buckets are null. Fall back to the legacy bucket if present.
+function scoped(model, legacy) {
+  const l = (data.limits || []).find(x =>
+    x.kind === 'weekly_scoped' && x.scope?.model?.display_name?.toLowerCase() === model);
+  return l ? { pct: Math.round(l.percent || 0), reset: l.resets_at }
+           : { pct: Math.round(legacy?.utilization || 0), reset: legacy?.resets_at };
+}
+
 const p5 = Math.round(data?.five_hour?.utilization        || 0);
 const p7 = Math.round(data?.seven_day?.utilization        || 0);
-const ps = Math.round(data?.seven_day_sonnet?.utilization || 0);
+const sn = scoped('sonnet', data?.seven_day_sonnet);
+const fb = scoped('fable',  null);
+const ps = sn.pct, pf = fb.pct;
 
 const headroom5  = Math.max(0, T_5H     - p5);
 const headroom7  = Math.max(0, T_7D     - p7);
 const headroomSn = Math.max(0, T_SONNET - ps);
+const headroomFb = Math.max(0, T_FABLE  - pf);
 
 const maxSubagents = Math.max(0, Math.floor(headroom5 / PER_AGENT_PCT));
 
@@ -79,19 +92,20 @@ if (p7 >= T_7D) { available = false; reasons.push(`7d at ${p7}% >= ${T_7D}%`); }
 
 const out = {
   available,
-  thresholds: { five_hour: T_5H, seven_day: T_7D, sonnet: T_SONNET },
-  current:    { five_hour: p5,   seven_day: p7,   sonnet: ps },
-  headroom:   { five_hour: headroom5, seven_day: headroom7, sonnet: headroomSn },
+  thresholds: { five_hour: T_5H, seven_day: T_7D, sonnet: T_SONNET, fable: T_FABLE },
+  current:    { five_hour: p5,   seven_day: p7,   sonnet: ps, fable: pf },
+  headroom:   { five_hour: headroom5, seven_day: headroom7, sonnet: headroomSn, fable: headroomFb },
   max_subagents: available ? maxSubagents : 0,
   resets_in: {
     five_hour: fmtReset(data?.five_hour?.resets_at),
     seven_day: fmtReset(data?.seven_day?.resets_at),
-    sonnet:    fmtReset(data?.seven_day_sonnet?.resets_at),
+    sonnet:    fmtReset(sn.reset),
+    fable:     fmtReset(fb.reset),
   },
   cache_age_minutes: ageMin,
   stale,
   reasoning: available
-    ? `OK to spawn up to ${maxSubagents} subagents (5h headroom ${headroom5}% / ${PER_AGENT_PCT}% per agent). For Sonnet subagents specifically, headroom is ${headroomSn}%.`
+    ? `OK to spawn up to ${maxSubagents} subagents (5h headroom ${headroom5}% / ${PER_AGENT_PCT}% per agent). Model-specific headroom: Sonnet ${headroomSn}%, Fable ${headroomFb}%.`
     : `Blocked: ${reasons.join(', ')}. ${available ? '' : 'Defer or wait for reset.'}`,
 };
 

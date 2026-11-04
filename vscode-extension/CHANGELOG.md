@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-11-04
+
+### Added
+- Status bar and tooltip show every per-model weekly cap the usage endpoint reports in `limits[]` (`kind: "weekly_scoped"`), e.g. `Fable:NN%` with its reset time. Future model caps appear without a code change.
+
+### Changed
+- Sonnet is read from `limits[]` first; the legacy `seven_day_sonnet` bucket (now always `null`) is only a fallback.
+
 ## [1.2.3] — 2026-05-03
 
 ### Documentation

@@ -28,11 +28,11 @@ Returns JSON like:
 ```json
 {
   "available": true,
-  "thresholds": { "five_hour": 85, "seven_day": 85, "sonnet": 85 },
-  "current":    { "five_hour": 38, "seven_day": 33, "sonnet": 56 },
-  "headroom":   { "five_hour": 47, "seven_day": 52, "sonnet": 29 },
+  "thresholds": { "five_hour": 85, "seven_day": 85, "sonnet": 85, "fable": 85 },
+  "current":    { "five_hour": 38, "seven_day": 33, "sonnet": 56, "fable": 12 },
+  "headroom":   { "five_hour": 47, "seven_day": 52, "sonnet": 29, "fable": 73 },
   "max_subagents": 9,
-  "resets_in":  { "five_hour": "1h30m", "seven_day": "5d12h", "sonnet": "5d12h" },
+  "resets_in":  { "five_hour": "1h30m", "seven_day": "5d12h", "sonnet": "5d12h", "fable": "5d12h" },
   "cache_age_minutes": 2,
   "stale": false,
   "reasoning": "OK to spawn up to 9 subagents..."
@@ -61,9 +61,12 @@ Use the `available`, `max_subagents`, and pending checkpoint count to decide one
 | `headroom.five_hour < 20` | Yellow zone — spawn but pass `CHECKPOINT_AFTER_EVERY_STEP=1` instruction in the subagent prompt so its work is recoverable if the gate fires |
 | `stale: true` | Cache is older than 15 min. Decision is best-effort — open VS Code for ~10 sec to refresh the cache |
 
-### 4. (Optional) Per-Sonnet headroom
+### 4. Per-model headroom (Sonnet, Fable)
 
-If the subagent will use a Sonnet model and `headroom.sonnet < 10`, do NOT spawn that subagent — the gate will block specifically on Sonnet. Pick a non-Sonnet `subagent_type` (Opus or Haiku) instead.
+The model is the dispatch's `model` parameter, else the `model:` line of the agent definition (e.g. `architect` → fable, `worker` → sonnet).
+
+- Sonnet subagent and `headroom.sonnet < 10` → do NOT spawn it; the gate blocks on Sonnet. Pick a non-Sonnet role or pass another model.
+- Fable subagent and `headroom.fable < 10` → do NOT spawn it; the gate blocks on Fable. Pass `model: "opus"` instead (architect work still runs, on Opus).
 
 ## Output contract
 
