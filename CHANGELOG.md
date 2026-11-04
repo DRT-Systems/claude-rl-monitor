@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-04
+
 ### Fixed
 
 - **`hooks/rl-session-name.js`** — registry updates run under a lock file, so sessions starting at once get different names. A live session keeps its name entry past the one-week expiry. The name is taken from the hook's own result instead of being parsed back out of the message text, and names are JSON-quoted in the message.
