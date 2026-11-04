@@ -132,8 +132,8 @@ process.stdin.on('end', () => {
   const ps = sn.pct, pf = fb.pct;
 
   if (isDispatch) {
-    // single line: the value lands in the stderr block reason
-    const subagentModel = dispatchModel(input?.tool_input).replace(/[\r\n]+/g, ' ');
+    // no control characters (newlines, ESC sequences): the value lands in the stderr block reason
+    const subagentModel = dispatchModel(input?.tool_input).replace(/[\x00-\x1f\x7f]+/g, ' ');
     const isSonnet = subagentModel.includes('sonnet');
     const isFable  = subagentModel.includes('fable');
 

@@ -68,12 +68,14 @@ function remember(reg, id, name, liveIds = new Set(), now = Date.now()) {
 }
 
 // Serializes read → pick → write, so sessions starting at once get different names.
-// A lock older than 5 s is stale (crashed hook); after 2 s of waiting we run unlocked rather than stall startup.
+// A holder needs milliseconds, so a lock older than 60 s is left by a crashed hook and gets cleared.
+// After 2 s of waiting we run unlocked rather than stall startup.
 function withLock(fn) {
   const lock = REG_FILE + '.lock', until = Date.now() + 2000;
   for (;;) {
-    try { fs.closeSync(fs.openSync(lock, 'wx')); break; } catch {
-      try { if (Date.now() - fs.statSync(lock).mtimeMs > 5000) fs.unlinkSync(lock); } catch {}
+    try { fs.closeSync(fs.openSync(lock, 'wx')); break; } catch (e) {
+      if (e.code === 'ENOENT') return fn(); // no config dir: nothing to lock, and the registry write fails anyway
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > 60000) fs.unlinkSync(lock); } catch {}
       if (Date.now() > until) return fn();
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
     }

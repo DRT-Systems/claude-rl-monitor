@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`hooks/rl-session-name.js`** — registry updates run under a lock file, so sessions starting at once get different names. A live session keeps its name entry past the one-week expiry. The name is taken from the hook's own result instead of being parsed back out of the message text, and names are JSON-quoted in the message.
 - **`hooks/rl-statusline.js`** — reads the usage cache from `~/.claude`, where the extension writes it, also when `CLAUDE_CONFIG_DIR` is set.
-- **`hooks/rl-gate.js`** — newlines are stripped from the model name before it goes into a block message. The Fable block hint no longer mentions the orchestrator's `MODEL:` line.
+- **`hooks/rl-gate.js`** — control characters (newlines, escape sequences) are stripped from the model name before it goes into a block message. The Fable block hint no longer mentions the orchestrator's `MODEL:` line.
 - **Agent map** — a ` · ` separator between the status and the session name in the details header.
 
 ## [0.6.0] — 2026-11-04
