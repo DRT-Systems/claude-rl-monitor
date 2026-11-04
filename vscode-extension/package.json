@@ -2,7 +2,7 @@
   "name": "claude-rl-monitor",
   "displayName": "Claude Code Rate Limit Monitor",
   "description": "Shows Claude Pro 5h session and 7-day usage in the VS Code status bar.",
-  "version": "1.2.3",
+  "version": "1.3.0",
   "publisher": "local",
   "repository": {
     "type": "git",

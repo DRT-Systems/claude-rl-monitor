@@ -127,11 +127,19 @@ function renderFromData(data) {
 
   const p5 = Math.round(fh.utilization || 0);
   const p7 = sd ? Math.round(sd.utilization || 0) : null;
-  const ps = sn ? Math.round(sn.utilization || 0) : null;
   const reset5 = formatRemaining(fh.resets_at);
   const reset7 = formatRemaining(sd?.resets_at);
 
-  const maxPct = Math.max(p5, p7 ?? 0, ps ?? 0);
+  // Per-model weekly caps (Fable, ...) arrive in limits[] as 'weekly_scoped';
+  // the legacy seven_day_sonnet bucket is shown only if still populated.
+  const models = (data?.limits || [])
+    .filter(l => l.kind === 'weekly_scoped' && l.scope?.model?.display_name)
+    .map(l => ({ name: l.scope.model.display_name, pct: Math.round(l.percent || 0), reset: l.resets_at }));
+  if (sn && !models.some(m => m.name.toLowerCase() === 'sonnet')) {
+    models.push({ name: 'Sonnet', pct: Math.round(sn.utilization || 0), reset: sn.resets_at });
+  }
+
+  const maxPct = Math.max(p5, p7 ?? 0, ...models.map(m => m.pct));
   let icon = '$(check)';
   let bg;
   if (maxPct >= 90) {
@@ -146,7 +154,7 @@ function renderFromData(data) {
 
   let text = `${icon} 5h:${p5}%`;
   if (p7 !== null) text += `  7d:${p7}%`;
-  if (ps !== null) text += `  Sonnet:${ps}%`;
+  for (const m of models) text += `  ${m.name}:${m.pct}%`;
   if (reset5)      text += `  ↺${reset5}`;
 
   statusBar.text = text;
@@ -158,7 +166,7 @@ function renderFromData(data) {
   md.appendMarkdown(`| Window | Used | Resets in |\n| --- | ---: | ---: |\n`);
   md.appendMarkdown(`| 5-hour session | **${p5}%** | ${reset5 || '—'} |\n`);
   if (p7 !== null) md.appendMarkdown(`| 7-day weekly | **${p7}%** | ${reset7 || '—'} |\n`);
-  if (ps !== null) md.appendMarkdown(`| 7-day Sonnet | **${ps}%** | ${formatRemaining(sn?.resets_at) || '—'} |\n`);
+  for (const m of models) md.appendMarkdown(`| 7-day ${m.name} | **${m.pct}%** | ${formatRemaining(m.reset) || '—'} |\n`);
   md.appendMarkdown(`\nData age: ${ageMin === 0 ? 'fresh' : ageMin + ' min ago'}\n\nClick to refresh now.`);
   statusBar.tooltip = md;
 }
