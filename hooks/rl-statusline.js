@@ -58,6 +58,16 @@ process.stdin.on('end', () => {
   const fivePct  = fiveHour?.used_percentage ?? null;
   const sevenPct = sevenDay?.used_percentage ?? null;
   const sonnetPct = sonnet?.used_percentage ?? null;
+
+  // Fable's weekly cap is not in the statusline payload; read it from the
+  // usage cache the VS Code extension writes (limits[], kind 'weekly_scoped').
+  let fablePct = null;
+  try {
+    const cache = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, '.rl_cache.json'), 'utf8'));
+    const l = (cache?.data?.limits || []).find(x =>
+      x.kind === 'weekly_scoped' && x.scope?.model?.display_name?.toLowerCase() === 'fable');
+    if (l && Date.now() - cache.ts < 15 * 60 * 1000) fablePct = l.percent ?? null;
+  } catch {}
   const fiveReset = fiveHour?.resets_at ?? null;
 
   // Write/clear flag for UserPromptSubmit hook
@@ -91,6 +101,7 @@ process.stdin.on('end', () => {
     let rl = `${c('90')}│${RESET} ${pctColor(p5)}5h:${p5}%${RESET}`;
     if (p7 !== null) rl += ` ${pctColor(p7)}7d:${p7}%${RESET}`;
     if (ps !== null) rl += ` ${pctColor(ps)}Sonnet:${ps}%${RESET}`;
+    if (fablePct !== null) rl += ` ${pctColor(Math.round(fablePct))}Fable:${Math.round(fablePct)}%${RESET}`;
     if (countdown)   rl += ` ${c('90')}↺${countdown}${RESET}`;
     parts.push(rl);
   }
