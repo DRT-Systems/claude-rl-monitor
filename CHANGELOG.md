@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-10
+
 ### Added
 
 - **`hooks/rl-gate.js`** — file claims on direct dispatch: each `FILES: <abs path>, ...` line in a Task/Agent prompt claims those files on the shared board under the session name. Another session holding one blocks the dispatch with the `ask` command to request it. A `worker` or `architect` dispatch without a `FILES:` line passes but gets an `additionalContext` reminder.
