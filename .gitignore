@@ -10,3 +10,5 @@ Thumbs.db
 .rl_dismiss
 rl-handoff.json
 *.vsix
+
+memory-bank/
