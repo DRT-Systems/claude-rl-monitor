@@ -1,5 +1,5 @@
 {
-  "_comment": "Snippet to merge into ~/.claude/settings.json. Replace any existing 'statusLine' entry. Add the UserPromptSubmit and StopFailure blocks under 'hooks'. Add the SessionStart block alongside any existing SessionStart hooks. Both SessionStart hooks can run side by side: Claude Code joins the additionalContext of every hook, and only rl-session-name.js sets sessionTitle.",
+  "_comment": "Snippet to merge into ~/.claude/settings.json. Replace any existing 'statusLine' entry. Add the UserPromptSubmit, StopFailure and SubagentStop blocks under 'hooks'. Add the SessionStart block alongside any existing SessionStart hooks. Both SessionStart hooks can run side by side: Claude Code joins the additionalContext of every hook, and only rl-session-name.js sets sessionTitle.",
 
   "statusLine": {
     "type": "command",
@@ -9,7 +9,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Task",
+        "matcher": "Task|Agent|Bash|Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
@@ -52,6 +52,18 @@
             "command": "node \"%USERPROFILE%/.claude/hooks/rl-stop-failure.js\"",
             "timeout": 15,
             "async": true
+          }
+        ]
+      }
+    ],
+
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"%USERPROFILE%/.claude/hooks/rl-release.js\"",
+            "timeout": 10
           }
         ]
       }

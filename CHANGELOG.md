@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`hooks/rl-gate.js`** — file claims on direct dispatch: each `FILES: <abs path>, ...` line in a Task/Agent prompt claims those files on the shared board under the session name. Another session holding one blocks the dispatch with the `ask` command to request it. A `worker` or `architect` dispatch without a `FILES:` line passes but gets an `additionalContext` reminder.
+- **`hooks/rl-release.js`** — new `SubagentStop` hook that releases the dispatch's claim when the subagent ends; checkpointed subagents keep theirs.
+
+### Changed
+
+- **`agents/budget-orchestrator.md`** — dispatch-only: tools cut to `Agent` and `Bash` (only `rl-*.js`), Haiku pinned. It returns `SPLIT:` instead of running implement → review → fix loops, and passes a requested `MODEL:` as the Agent `model` parameter. Normal dispatches now go straight from the main session.
+- **`hooks/rl-gate.js`** — a block on a file held by another subagent of the same session now says that subagent is probably still running, so wait for it, instead of suggesting the claim leaked.
+- **`hooks/rl-claims.js`** — stores the prompt key on each claim so `rl-release.js` can find it.
+- **`docs/settings-example.json`** — gate matcher covers `Agent` and the subagent work tools; adds the `SubagentStop` block.
+
 ## [0.6.1] — 2026-11-04
 
 ### Fixed
