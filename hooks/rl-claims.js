@@ -88,7 +88,7 @@ function claim() {
       }
     }
     if (conflicts.length) return { conflicts };
-    const c = { id: newId(), session: p.session, agent: p.agent, task: p.task || '',
+    const c = { id: newId(), session: p.session, agent: p.agent, task: p.task || '', key: p.key || '',
                 project: process.cwd(), files, claimed_at: new Date().toISOString() };
     s.claims.push(c);
     return { claimed: true, id: c.id, files };

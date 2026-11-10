@@ -10,6 +10,12 @@
 // Main-agent tool calls of Bash/Edit/Write/MultiEdit are passed through —
 // only NEW Agent dispatches from main agent are blocked.
 //
+// File claims: a dispatch whose prompt has one or more `FILES: <abs path>, ...`
+// lines claims those files on the shared board (rl-claims.js) under this
+// session's name. Another session holding one → blocked with the `ask` command.
+// rl-release.js (SubagentStop) releases the claim when the subagent ends.
+// No FILES line → budget check only.
+//
 // Whitelist: Bash commands containing "rl-checkpoint" are always allowed,
 // so a subagent can save its checkpoint after being blocked.
 //
@@ -27,6 +33,12 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+const { spawnSync } = require('child_process');
+
+const CLAIMS_JS  = path.join(__dirname, 'rl-claims.js');
+const NAMES_FILE = path.join(os.homedir(), '.claude', 'rl-session-names.json');
+// Links a claim to its subagent transcript; rl-release.js computes the same key.
+const promptKey = p => String(p || '').replace(/\s+/g, ' ').trim().slice(0, 300);
 
 const CACHE_FILE = path.join(os.homedir(), '.claude', '.rl_cache.json');
 const CACHE_MAX_AGE_MS = 15 * 60 * 1000;
@@ -41,6 +53,7 @@ const AGENTS_DIR = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homed
 
 const SUBAGENT_WORK_TOOLS = new Set(['Bash', 'Edit', 'Write', 'MultiEdit']);
 const DISPATCH_TOOLS      = new Set(['Task', 'Agent']);
+const EDIT_ROLES          = new Set(['worker', 'architect']);
 
 function passthrough(rawIn) {
   process.stdout.write(rawIn);
@@ -60,7 +73,8 @@ function isSubagentContext(input) {
 function isCheckpointCommand(input) {
   if (input?.tool_name !== 'Bash') return false;
   const cmd = String(input?.tool_input?.command || '');
-  return cmd.includes('rl-checkpoint');
+  // all rl-*.js helpers (checkpoint, schedule-resume, claims, memory-bank): DEFER needs them at the threshold
+  return /rl-[a-z-]+\.js/.test(cmd);
 }
 
 function readCache() {
@@ -106,6 +120,59 @@ function dispatchModel(toolInput) {
   return type.toLowerCase();
 }
 
+function sessionTag(input) {
+  try {
+    const n = JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8'))[input.session_id]?.name;
+    if (n) return n;
+  } catch {}
+  return String(input?.session_id || 'unknown').slice(0, 8);
+}
+
+// Claim the prompt's FILES on the shared board; block on another session's claim.
+function claimFiles(input, raw) {
+  const ti = input?.tool_input || {};
+  const files = [...String(ti.prompt || '').matchAll(/^FILES:[ \t]*(.+)$/gm)]
+    .flatMap(m => m[1].split(','))
+    .map(s => s.trim().replace(/^["'`]+|["'`]+$/g, ''))
+    .filter(Boolean);
+  if (!files.length) {
+    // ponytail: warn-only; editing roles without FILES skip the claim board. Read-only dispatches may ignore it.
+    if (!EDIT_ROLES.has(String(ti.subagent_type || ''))) return passthrough(raw);
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse',
+      additionalContext: `[rl-gate] ${ti.subagent_type} dispatched without a FILES: line, so no files were claimed. ` +
+        `If it edits files, put "FILES: <abs path>, ..." in the prompt next time. Read-only task: ignore.` } }));
+    process.exit(0);
+  }
+  const tag = sessionTag(input);
+  const r = spawnSync(process.execPath, [CLAIMS_JS, 'claim'], {
+    input: JSON.stringify({ session: tag, agent: String(ti.subagent_type || 'agent'),
+                            task: String(ti.description || ''), key: promptKey(ti.prompt), files }),
+    encoding: 'utf8', cwd: input.cwd || process.cwd(), timeout: 4000,
+  });
+  if (r.status !== 3) return passthrough(raw); // claimed, or store trouble: fail open
+  let conflicts = [];
+  try { conflicts = JSON.parse(r.stdout).conflicts || []; } catch {}
+  const own = conflicts.filter(c => c.holder_session === tag);
+  if (own.length) {
+    return block(
+      `File held by another subagent of THIS session (${tag}), most likely still running: ` +
+      own.map(c => `${c.file} (claim ${c.claim_id})`).join('; ') +
+      `. Wait for it to finish (SubagentStop releases the claim), then retry. ` +
+      `Only if that subagent is already done: node ~/.claude/hooks/rl-claims.js release <claim id>`
+        .replace(/[\x00-\x1f\x7f]+/g, ' '),
+      raw
+    );
+  }
+  const list = conflicts.map(c => `${c.file} (held by session ${c.holder_session}, agent ${c.holder_agent})`).join('; ');
+  return block(
+    `File claim conflict: ${list}. Do not dispatch onto these files. Ask the holder: ` +
+    `echo '{"from":"${tag}","file":"<path>","text":"<what you change and why>"}' | node ~/.claude/hooks/rl-claims.js ask  ` +
+    `— dispatch other work meanwhile, check  node ~/.claude/hooks/rl-claims.js inbox ${tag}  and retry this dispatch once approved.`
+      .replace(/[\x00-\x1f\x7f]+/g, ' '),
+    raw
+  );
+}
+
 let raw = '';
 process.stdin.on('data', chunk => { raw += chunk; });
 process.stdin.on('end', () => {
@@ -123,7 +190,7 @@ process.stdin.on('end', () => {
   if (isCheckpointCommand(input)) return passthrough(raw);
 
   const cache = readCache();
-  if (!cache) return passthrough(raw);
+  if (!cache) return isDispatch ? claimFiles(input, raw) : passthrough(raw);
 
   const p5 = Math.round(cache?.five_hour?.utilization        || 0);
   const p7 = Math.round(cache?.seven_day?.utilization        || 0);
@@ -166,7 +233,7 @@ process.stdin.on('end', () => {
         raw
       );
     }
-    return passthrough(raw);
+    return claimFiles(input, raw);
   }
 
   // Subagent work tool path: block at threshold to force in-flight checkpoint.
